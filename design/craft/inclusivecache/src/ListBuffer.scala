@@ -17,7 +17,8 @@
 
 package sifive.blocks.inclusivecache
 
-import Chisel._
+import chisel3._
+import chisel3.util._
 import freechips.rocketchip.util._
 
 /**
@@ -29,16 +30,18 @@ import freechips.rocketchip.util._
   */
 case class ListBufferParameters[T <: Data](gen: T, queues: Int, entries: Int, bypass: Boolean)
 {
-  val queueBits = log2Up(queues)
-  val entryBits = log2Up(entries)
+  /** width of queue size. */
+  val queueBits: Int = log2Ceil(queues)
+  /** width of entry size. */
+  val entryBits: Int = log2Ceil(entries)
 }
 
 class ListBufferPush[T <: Data](params: ListBufferParameters[T]) extends GenericParameterizedBundle(params)
 {
   /** queue index to push. */
-  val index = UInt(width = params.queueBits)
+  val index = UInt(params.queueBits.W)
   /** enqueue data. */
-  val data  = params.gen.asOutput
+  val data  = params.gen
 }
 
 /** Multiple linked list sharing a block of memory.
@@ -51,46 +54,46 @@ class ListBufferPush[T <: Data](params: ListBufferParameters[T]) extends Generic
   */
 class ListBuffer[T <: Data](params: ListBufferParameters[T]) extends Module
 {
-  val io = new Bundle {
+  val io = IO(new Bundle {
     /** push data to correspond queues identified by [[ListBufferPush.index]].
       * push is visible on the same cycle; flow queues.
       */
-    val push  = Decoupled(new ListBufferPush(params)).flip
+    val push  = Flipped(Decoupled(new ListBufferPush(params)))
     /** bits indicate queues is valid. */
-    val valid = UInt(width = params.queues)
+    val valid = Output(UInt(params.queues.W))
     /** request correspond queue to pop data. */
-    val pop   = Valid(UInt(width = params.queueBits)).flip
+    val pop   = Flipped(Valid(UInt(params.queueBits.W)))
     /** popped data. */
-    val data  = params.gen.asOutput
-  }
+    val data  = Output(params.gen)
+  })
 
   /** indicate a queue is not empty. */
-  val valid = RegInit(UInt(0, width=params.queues))
+  val valid = RegInit(0.U(params.queues.W))
   /** head pointer of each queue. */
-  val head  = Mem(params.queues, UInt(width = params.entryBits))
+  val head  = Mem(params.queues, UInt(params.entryBits.W))
   /** tail pointer of each queue. */
-  val tail  = Mem(params.queues, UInt(width = params.entryBits))
+  val tail  = Mem(params.queues, UInt(params.entryBits.W))
 
   /** indicate this entry has a valid data. */
-  val used  = RegInit(UInt(0, width=params.entries))
+  val used  = RegInit(0.U(params.entries.W))
   /** next pointer of a data. */
-  val next  = Mem(params.entries, UInt(width = params.entryBits))
+  val next  = Mem(params.entries, UInt(params.entryBits.W))
   /** entry of data. */
   val data  = Mem(params.entries, params.gen)
 
   /** find a one-hot index of the first(right first) empty entries. */
-  val freeOH = ~(leftOR(~used) << 1) & ~used
+  val freeOH = (~(leftOR((~used).asUInt()) << 1)).asUInt() & (~used).asUInt()
   /** index of [[freeOH]]. */
   val freeIdx = OHToUInt(freeOH)
 
   /** One-hot signal to indicate a queue is pushed in this cycle. */
-  val valid_set = Wire(init = UInt(0, width=params.queues))
+  val valid_set = WireDefault(0.U(params.queues.W))
   /** One-hot signal to indicate a queue is popped to empty in this cycle. */
-  val valid_clr = Wire(init = UInt(0, width=params.queues))
+  val valid_clr = WireDefault(0.U(params.queues.W))
   /** One-hot signal to indicate a entries is pushed in this cycle. */
-  val used_set  = Wire(init = UInt(0, width=params.entries))
+  val used_set  = WireDefault(0.U(params.entries.W))
   /** One-hot signal to indicate a entries is popped in this cycle. */
-  val used_clr  = Wire(init = UInt(0, width=params.entries))
+  val used_clr  = WireDefault(0.U(params.entries.W))
 
   /** tail of queue being pushed. */
   val push_tail = tail.read(io.push.bits.index)
@@ -145,8 +148,8 @@ class ListBuffer[T <: Data](params: ListBufferParameters[T]) extends Module
   /* if bypass is not set, update state signal[[used]] and [[valid]] in each signal.
    * if bypass is set, empty bypass changes no state.
    */
-  when (Bool(!params.bypass) || !io.pop.valid || pop_valid) {
-    used  := (used  & ~used_clr)  | used_set
-    valid := (valid & ~valid_clr) | valid_set
+  when ((!params.bypass).B || !io.pop.valid || pop_valid) {
+    used  := (used  & (~used_clr).asUInt())  | used_set
+    valid := (valid & (~valid_clr).asUInt()) | valid_set
   }
 }
