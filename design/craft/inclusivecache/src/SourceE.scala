@@ -17,13 +17,14 @@
 
 package sifive.blocks.inclusivecache
 
-import Chisel._
+import chisel3._
+import chisel3.util._
 import freechips.rocketchip.tilelink._
 
 /** Interface between MSHR and Source E. */
 class SourceERequest(params: InclusiveCacheParameters) extends InclusiveCacheBundle(params)
 {
-  val sink = UInt(width = params.outer.bundle.sinkBits)
+  val sink = UInt(params.outer.bundle.sinkBits.W)
 }
 
 /** Interface to manger's E channel.
@@ -31,12 +32,12 @@ class SourceERequest(params: InclusiveCacheParameters) extends InclusiveCacheBun
   */
 class SourceE(params: InclusiveCacheParameters) extends Module
 {
-  val io = new Bundle {
+  val io = IO(new Bundle {
     /** Request from MSHR. */
-    val req = Decoupled(new SourceERequest(params)).flip
+    val req = Flipped(Decoupled(new SourceERequest(params)))
     /** Wired from manager E channel. */
     val e = Decoupled(new TLBundleE(params.outer.bundle))
-  }
+  })
 
   /* ready must be a register, because we derive valid from ready. */
   require (!params.micro.outerBuf.e.pipe && params.micro.outerBuf.e.isDefined)
