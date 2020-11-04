@@ -20,22 +20,29 @@ package sifive.blocks.inclusivecache
 import Chisel._
 import freechips.rocketchip.tilelink._
 
+/** Interface between MSHR and Source E. */
 class SourceERequest(params: InclusiveCacheParameters) extends InclusiveCacheBundle(params)
 {
   val sink = UInt(width = params.outer.bundle.sinkBits)
 }
 
+/** Interface to manger's E channel.
+  * Accept request from MSHR, and response to manger.
+  */
 class SourceE(params: InclusiveCacheParameters) extends Module
 {
   val io = new Bundle {
+    /** Request from MSHR. */
     val req = Decoupled(new SourceERequest(params)).flip
+    /** Wired from manager E channel. */
     val e = Decoupled(new TLBundleE(params.outer.bundle))
   }
 
-  // ready must be a register, because we derive valid from ready
+  /* ready must be a register, because we derive valid from ready. */
   require (!params.micro.outerBuf.e.pipe && params.micro.outerBuf.e.isDefined)
 
   val e = Wire(io.e)
+  /** Based on parameter of micro architecture, construct a buffer of E. */
   io.e <> params.micro.outerBuf.e(e)
 
   io.req.ready := e.ready
@@ -43,5 +50,5 @@ class SourceE(params: InclusiveCacheParameters) extends Module
 
   e.bits.sink := io.req.bits.sink
 
-  // we can't cover valid+!ready, because no backpressure on E is common
+  /** we can't cover valid+!ready, because no backpressure on E is common, since manger is always ready. */
 }
