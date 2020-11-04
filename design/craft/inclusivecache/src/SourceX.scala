@@ -20,7 +20,9 @@ package sifive.blocks.inclusivecache
 import Chisel._
 import freechips.rocketchip.tilelink._
 
-// The control port response source
+/** Interface between MSHR and Source X.
+  * ACK to flush controller.
+  */
 class SourceXRequest(params: InclusiveCacheParameters) extends InclusiveCacheBundle(params)
 {
   val fail = Bool()
@@ -29,14 +31,19 @@ class SourceXRequest(params: InclusiveCacheParameters) extends InclusiveCacheBun
 class SourceX(params: InclusiveCacheParameters) extends Module
 {
   val io = new Bundle {
+    /** Request from MSHR. */
     val req = Decoupled(new SourceXRequest(params)).flip
+    /** Wired to flush controller. */
     val x = Decoupled(new SourceXRequest(params))
   }
 
   val x = Wire(io.x) // ready must not depend on valid
+  /* construct a buffer of X. */
   io.x <> Queue(x, 1)
 
+  /* couple controller ready directly to MSHR. */
   io.req.ready := x.ready
+  /* couple MSHR valid directly to controller. */
   x.valid := io.req.valid
   params.ccover(x.valid && !x.ready, "SOURCEX_STALL", "Backpressure when sending a control message")
 
