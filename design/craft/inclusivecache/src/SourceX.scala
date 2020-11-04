@@ -17,8 +17,8 @@
 
 package sifive.blocks.inclusivecache
 
-import Chisel._
-import freechips.rocketchip.tilelink._
+import chisel3._
+import chisel3.util._
 
 /** Interface between MSHR and Source X.
   * ACK to flush controller.
@@ -30,12 +30,12 @@ class SourceXRequest(params: InclusiveCacheParameters) extends InclusiveCacheBun
 
 class SourceX(params: InclusiveCacheParameters) extends Module
 {
-  val io = new Bundle {
+  val io = IO(new Bundle {
     /** Request from MSHR. */
-    val req = Decoupled(new SourceXRequest(params)).flip
+    val req = Flipped(Decoupled(new SourceXRequest(params)))
     /** Wired to flush controller. */
     val x = Decoupled(new SourceXRequest(params))
-  }
+  })
 
   val x = Wire(io.x) // ready must not depend on valid
   /* construct a buffer of X. */
