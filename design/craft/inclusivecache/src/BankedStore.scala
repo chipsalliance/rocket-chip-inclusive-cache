@@ -25,9 +25,13 @@ import freechips.rocketchip.util.DescribedSRAM
 
 import scala.math.{max, min}
 
+/**
+  *
+  */
 abstract class BankedStoreAddress(val inner: Boolean, params: InclusiveCacheParameters) extends InclusiveCacheBundle(params)
 {
-  val noop = Bool() // do not actually use the SRAMs, just block their use
+  /** do not actually use the SRAMs, just block their use */
+  val noop = Bool()
   val way  = UInt(width = params.wayBits)
   val set  = UInt(width = params.setBits)
   val beat = UInt(width = if (inner) params.innerBeatBits else params.outerBeatBits)
@@ -55,6 +59,41 @@ class BankedStoreOuterPoison(params: InclusiveCacheParameters) extends BankedSto
 class BankedStoreInnerDecoded(params: InclusiveCacheParameters) extends BankedStoreInnerData(params)
 class BankedStoreOuterDecoded(params: InclusiveCacheParameters) extends BankedStoreOuterData(params)
 
+/** assume a row has 32 banks, each bank has `beatBytes/portFactor` bytes.
+  * row is the data structure which `portFactor` can support 4 outstanding access requests in pipeline.
+  *
+  * xxxxxxxx xxxxxxxx xxxxxxxx xxxxxxxx <---- row: all subbanks has 4 stacks.
+  *                                           port: "xxxxxxxx" beat will access these banks in a cycle.
+  *
+  *
+  * request: set way beat mask -> subbank access?
+  *
+  * portFactor = 4
+  * beatBytes = 64
+  * rowBytes = beatBytes * portFactor = 4 * 64
+  * writeBytes = 8                                                  -> width of a subbank.("x" in the graph)
+  * numBanks = rowBytes /  writeBytes = 32
+  * ports = beatBytes / params.micro.writeBytes = 64 / 8 = 8        -> how many subbanks should be accessed in each beat(client and manger might be different).
+  * selectWidth = numBanks / ports = 4                              -> how many stacks of "xxxxxxxx"
+  * bankBits = log(numBanks / ports) = 2
+  *
+  * way -> 0 set -> 0 beat -> 0 =>
+  * index = 0                                                       -> index of banks(not shown in graph)
+  * select = 0010                                                   -> which port to select
+  * mask = 10101001                                                 -> mask from tilelink, can mask some subbanks to save power.
+  *
+  * 00000000 00000000 11111111 00000000    -> FillInterleaved(ports, select)
+  * 10101001 10101001 10101001 10101001    -> Fill(numBanks/ports, mask)
+  * 00000000 00000000 10101001 00000000    -> &
+  *
+  * bankBits -> log2(4)
+  * set way ->
+  * beat ->
+  * mask ->
+  *
+  * `bankSel := Mux(b.valid, FillInterleaved(ports, select) & Fill(numBanks/ports, m), UInt(0))`
+  *
+  */
 class BankedStore(params: InclusiveCacheParameters) extends Module
 {
   val io = new Bundle {
@@ -70,15 +109,27 @@ class BankedStore(params: InclusiveCacheParameters) extends Module
     val sourceD_wdat = new BankedStoreInnerPoison(params).flip
   }
 
+  /** clients beatBytes.
+    * For each cycle how many bytes will be sent to clients.
+    */
   val innerBytes = params.inner.manager.beatBytes
+  /** manger beatBytes.
+    * For each cycle how many bytes will be sent to mangers.
+    */
   val outerBytes = params.outer.manager.beatBytes
+  /** bytes size for each row. */
   val rowBytes = params.micro.portFactor * max(innerBytes, outerBytes)
   require (rowBytes < params.cache.sizeBytes)
+  /** the depth of subbank SRAM. */
   val rowEntries = params.cache.sizeBytes / rowBytes
+  /** width of request index. */
   val rowBits = log2Ceil(rowEntries)
+  /** number of subbanks. */
   val numBanks = rowBytes / params.micro.writeBytes
+  /** data width of subbank. */
   val codeBits = 8*params.micro.writeBytes
 
+  /** subbanks */
   val cc_banks = Seq.tabulate(numBanks) {
     i =>
       DescribedSRAM(
@@ -105,34 +156,57 @@ class BankedStore(params: InclusiveCacheParameters) extends Module
   // The correct arbitration is to allow --A- only, not --AC.
   // Obviously --A-, BB--, ---C should still be resolved to BBAC.
 
+  /** bundle to access [[cc_banks]]. */
   class Request extends Bundle {
     val wen      = Bool()
     val index    = UInt(width = rowBits)
     val bankSel  = UInt(width = numBanks)
-    val bankSum  = UInt(width = numBanks) // OR of all higher priority bankSels
-    val bankEn   = UInt(width = numBanks) // ports actually activated by request
+    /** OR of all higher priority bankSels. */
+    val bankSum  = UInt(width = numBanks)
+    /** ports actually activated by request. */
+    val bankEn   = UInt(width = numBanks)
     val data     = Vec(numBanks, UInt(width = codeBits))
   }
 
+  /** Decode external access(way set beat mask) to [[cc_banks]].
+    * @param b address with type [[BankedStoreAddress]].
+    * @param write this request will write subbank.
+    * @param d data of this beat.
+    */
   def req[T <: BankedStoreAddress](b: DecoupledIO[T], write: Bool, d: UInt): Request = {
+    /** beatBytes of this request. */
     val beatBytes = if (b.bits.inner) innerBytes else outerBytes
+    /** for each cycle, how many subbanks will be accessed. */
     val ports = beatBytes / params.micro.writeBytes
+    /** width of `numBanks / ports`. */
     val bankBits = log2Ceil(numBanks / ports)
+    /** split data to subbanks. */
     val words = Seq.tabulate(ports) { i =>
       val data = d((i + 1) * 8 * params.micro.writeBytes - 1, i * 8 * params.micro.writeBytes)
       data
     }
+    /** encode (way set beat) to subbank index. */
     val a = Cat(b.bits.way, b.bits.set, b.bits.beat)
+    /** mask of this beat. */
     val m = b.bits.mask
+    /** output [[Request]]. */
     val out = Wire(new Request)
 
+    /** select a stack of subbank based on lower bits of [[a]]. */
     val select = UIntToOH(a(bankBits-1, 0), numBanks/ports)
+    /** all ready signals of stack of subbanks.
+      * `out.bankSum((i+1)*ports-1, i*ports) & m` -> each bits indicates correspond subbank is being accessed by higher priority request.
+      * `!(out.bankSum((i+1)*ports-1, i*ports) & m).orR` -> this bits indicates correspond subbanks stack is ready.
+      */
     val ready  = Cat(Seq.tabulate(numBanks/ports) { i => !(out.bankSum((i+1)*ports-1, i*ports) & m).orR } .reverse)
+    /** select correspond substack from [[ready]]. */
     b.ready := ready(a(bankBits-1, 0))
 
     out.wen      := write
+    /** higher bits in [[a]] decides index to access. */
     out.index    := a >> bankBits
     out.bankSel  := Mux(b.valid, FillInterleaved(ports, select) & Fill(numBanks/ports, m), UInt(0))
+    /** block others in nested transaction. */
     out.bankEn   := Mux(b.bits.noop, UInt(0), out.bankSel & FillInterleaved(ports, ready))
     out.data     := Vec(Seq.fill(numBanks/ports) { words }.flatten)
 
@@ -159,7 +233,8 @@ class BankedStore(params: InclusiveCacheParameters) extends Module
     req.bankSum := sum
     req.bankSel | sum
   }
-  // Access the banks
+
+  /** SRAM access: 1 cycles read and latch to [[regout]], 1 cycle write. */
   val regout = Vec(cc_banks.zipWithIndex.map { case ((b, omSRAM), i) =>
     val en  = reqs.map(_.bankEn(i)).reduce(_||_)
     val sel = reqs.map(_.bankSel(i))
@@ -167,12 +242,24 @@ class BankedStore(params: InclusiveCacheParameters) extends Module
     val idx = PriorityMux(sel, reqs.map(_.index))
     val data= PriorityMux(sel, reqs.map(_.data(i)))
 
+    /* write */
     when (wen && en) { b.write(idx, data) }
+    /* read */
     RegEnable(b.read(idx, !wen && en), RegNext(!wen && en))
   })
 
+  /* align cycles between bankEn and sram read output. */
   val regsel_sourceC = RegNext(RegNext(sourceC_req.bankEn))
   val regsel_sourceD = RegNext(RegNext(sourceD_rreq.bankEn))
+
+  /* Intentionally not Mux1H and/or an indexed-mux b/c we want it 0 when !sel to save decode power.(area)
+   *
+   * 00000000 00000000 00000000 xxxxxxxx -> regout masked bankEn
+   * [[0], [0], [0], [hgfedcba]] -> group with stack.
+   * [[0,0,0,h], ....[0,0,0, a]] -> transpose
+   * [h, ..., a] -> reduce or
+   * hgfedcba -> cat
+   */
 
   val decodeC = regout.zipWithIndex.map {
     case (r, i) => Mux(regsel_sourceC(i), r, UInt(0))
@@ -181,7 +268,6 @@ class BankedStore(params: InclusiveCacheParameters) extends Module
   io.sourceC_dat.data := Cat(decodeC.reverse)
 
   val decodeD = regout.zipWithIndex.map {
-    // Intentionally not Mux1H and/or an indexed-mux b/c we want it 0 when !sel to save decode power
     case (r, i) => Mux(regsel_sourceD(i), r, UInt(0))
   }.grouped(innerBytes/params.micro.writeBytes).toList.transpose.map(s => s.reduce(_|_))
 
