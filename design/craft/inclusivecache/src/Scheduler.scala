@@ -403,6 +403,7 @@ class Scheduler(params: InclusiveCacheParameters) extends Module
   }
 
   // MSHR response meta-data fetch
+  /** @todo why not [[c_mshr]]? */
   sinkC.io.way :=
     Mux(bc_mshr.io.status.valid && bc_mshr.io.status.bits.set === sinkC.io.set,
       bc_mshr.io.status.bits.way,

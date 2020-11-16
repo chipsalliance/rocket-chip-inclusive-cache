@@ -40,17 +40,23 @@ class PutBufferCEntry(params: InclusiveCacheParameters) extends InclusiveCacheBu
 class SinkC(params: InclusiveCacheParameters) extends Module
 {
   val io = new Bundle {
+    /** to MSHR notify allocate release request. */
     val req = Decoupled(new FullRequest(params)) // Release
+    /** from MSHR ProbeAck is received. */
     val resp = Valid(new SinkCResponse(params)) // ProbeAck
+    /** TileLink C channel from client. */
     val c = Decoupled(new TLBundleC(params.inner.bundle)).flip
-    // Find 'way' via MSHR CAM lookup
+    /** signal to MSHR, give set, ask for way to access banked store. */
     val set = UInt(width = params.setBits)
+    /** MSHR CAM lookup will return a way to us. */
     val way = UInt(width = params.wayBits).flip
-    // ProbeAck write-back
+    /** ProbeAckData from other clients to banked store. */
     val bs_adr = Decoupled(new BankedStoreInnerAddress(params))
+    /** ProbeAckData data. */
     val bs_dat = new BankedStoreInnerPoison(params)
-    // SourceD sideband
+    /** SourceD ask this to pop a entry from putbuffer. */
     val rel_pop  = Decoupled(new PutBufferPop(params)).flip
+    /** ReleaseData from this to [[putbuffer]] data to SourceD. */
     val rel_beat = new PutBufferCEntry(params)
   }
 
@@ -68,8 +74,11 @@ class SinkC(params: InclusiveCacheParameters) extends Module
 
     val (tag, set, offset) = params.parseAddress(c.bits.address)
     val (first, last, _, beat) = params.inner.count(c)
+    /** transaction has data. */
     val hasData = params.inner.hasData(c.bits)
+    /** transaction in C channel a ProbeAck? */
     val raw_resp = c.bits.opcode === TLMessages.ProbeAck || c.bits.opcode === TLMessages.ProbeAckData
+    /** latch raw_resp. */
     val resp = Mux(c.valid, raw_resp, RegEnable(raw_resp, c.valid))
 
     // Handling of C is broken into two cases:
@@ -83,14 +92,19 @@ class SinkC(params: InclusiveCacheParameters) extends Module
 
     assert (!(c.valid && c.bits.corrupt), "Data poisoning unavailable")
 
+    /** latch: [[set]]. */
     io.set := Mux(c.valid, set, RegEnable(set, c.valid)) // finds us the way
 
-    // Cut path from inner C to the BankedStore SRAM setup
-    //   ... this makes it easier to layout the L2 data banks far away
+    /* Cut path from inner C to the BankedStore SRAM setup
+     * this makes it easier to layout the L2 data banks far away
+     */
     val bs_adr = Wire(io.bs_adr)
     io.bs_adr <> Queue(bs_adr, 1, pipe=true)
+    /** latch data in a clock-gated register, in case of ProbeAck cause useless flip. */
     io.bs_dat.data   := RegEnable(c.bits.data,    bs_adr.fire())
+    /* even if a truncated burst comes, valid will be hold to high. */
     bs_adr.valid     := resp && (!first || (c.valid && hasData))
+    /* block other request if this is burst data not finish. */
     bs_adr.bits.noop := !c.valid
     bs_adr.bits.way  := io.way
     bs_adr.bits.set  := io.set
