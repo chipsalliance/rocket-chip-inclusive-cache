@@ -97,21 +97,28 @@ class SinkC(params: InclusiveCacheParameters) extends Module
 
     /* Cut path from inner C to the BankedStore SRAM setup
      * this makes it easier to layout the L2 data banks far away
+     * @todo timming here?
      */
     val bs_adr = Wire(io.bs_adr)
     io.bs_adr <> Queue(bs_adr, 1, pipe=true)
-    /** latch data in a clock-gated register, in case of ProbeAck cause useless flip. */
+    /* latch data in a clock-gated register, in case of ProbeAck cause useless flip. C */
     io.bs_dat.data   := RegEnable(c.bits.data,    bs_adr.fire())
-    /* even if a truncated burst comes, valid will be hold to high. */
+    /* even if a truncated burst comes, valid will be hold to high. C */
     bs_adr.valid     := resp && (!first || (c.valid && hasData))
-    /* block other request if this is burst data not finish. */
+    /* block other request if this is burst data not finish. C */
     bs_adr.bits.noop := !c.valid
     bs_adr.bits.way  := io.way
     bs_adr.bits.set  := io.set
+    /* if [[c.valid]] access banked store with beat as address.
+     * if [[!c.valid]] block banked store with last `beat + 1.U`.
+     */
     bs_adr.bits.beat := Mux(c.valid, beat, RegEnable(beat + bs_adr.ready.asUInt, c.valid))
     bs_adr.bits.mask := ~UInt(0, width = params.innerMaskBits)
     params.ccover(bs_adr.valid && !bs_adr.ready, "SINKC_SRAM_STALL", "Data SRAM busy")
 
+    /* ProbeAck: notify MSHR directly.
+     * ProbeAckData: notify MSHR when BankedStore accepted data.
+     */
     io.resp.valid := resp && c.valid && (first || last) && (!hasData || bs_adr.ready)
     io.resp.bits.last   := last
     io.resp.bits.set    := set
@@ -120,6 +127,9 @@ class SinkC(params: InclusiveCacheParameters) extends Module
     io.resp.bits.param  := c.bits.param
     io.resp.bits.data   := hasData
 
+    /* put buffer for Release/ReleaseData.
+     * same as SInkA.
+     */
     val putbuffer = Module(new ListBuffer(ListBufferParameters(new PutBufferCEntry(params), params.relLists, params.relBeats, false)))
     val lists = RegInit(UInt(0, width = params.relLists))
 
@@ -139,6 +149,7 @@ class SinkC(params: InclusiveCacheParameters) extends Module
     params.ccover(c.valid && !raw_resp && buf_block, "SINKC_BUF_STALL", "No space in putbuffer for beat")
     params.ccover(c.valid && !raw_resp && set_block, "SINKC_SET_STALL", "No space in putbuffer for request")
 
+    /* mux based on if this transaction is ProbeAck(Data) or ReleaseAck(data). */
     c.ready := Mux(raw_resp, !hasData || bs_adr.ready, !req_block && !buf_block && !set_block)
 
     io.req.valid := !resp && c.valid && first && !buf_block && !set_block
@@ -147,6 +158,7 @@ class SinkC(params: InclusiveCacheParameters) extends Module
 
     val put = Mux(first, freeIdx, RegEnable(freeIdx, first))
 
+    /* spawn a request to scheduler, allocate a MSHR, modify directory. */
     io.req.bits.prio   := Vec(UInt(4, width=3).asBools)
     io.req.bits.control:= Bool(false)
     io.req.bits.opcode := c.bits.opcode
