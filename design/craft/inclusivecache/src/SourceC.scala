@@ -34,6 +34,7 @@ class SourceCRequest(params: InclusiveCacheParameters) extends InclusiveCacheBun
 class SourceC(params: InclusiveCacheParameters) extends Module
 {
   val io = new Bundle {
+    /** request from scheduler. */
     val req = Decoupled(new SourceCRequest(params)).flip
     val c = Decoupled(new TLBundleC(params.outer.bundle))
     // BankedStore port
@@ -48,24 +49,38 @@ class SourceC(params: InclusiveCacheParameters) extends Module
   require (!params.micro.outerBuf.c.pipe)
 
   val beatBytes = params.outer.manager.beatBytes
+  /* burst beats. */
   val beats = params.cache.blockBytes / beatBytes
   val flow = params.micro.outerBuf.c.flow
+  /** */
   val queue = Module(new Queue(io.c.bits, beats + 3 + (if (flow) 0 else 1), flow = flow))
 
-  // queue.io.count is far too slow
+  /** [[queue.io.count]] is far too slow.
+    * maintain a local counter here.
+    */
   val fillBits = log2Up(beats + 4)
+  /** equal to [[queue.io.count]]. */
   val fill = RegInit(UInt(0, width = fillBits))
+  /** queue has enough room to store next burst.
+    * @todo why room here?
+    */
   val room = RegInit(Bool(true))
+  /* update [[fill]] and [[room]]. */
   when (queue.io.enq.fire() =/= queue.io.deq.fire()) {
     fill := fill + Mux(queue.io.enq.fire(), UInt(1), ~UInt(0, width = fillBits))
     room := fill === UInt(0) || ((fill === UInt(1) || fill === UInt(2)) && !queue.io.enq.fire())
   }
   assert (room === queue.io.count <= UInt(1))
 
+  /** processing a [[ReleaseData]] burst. */
   val busy = RegInit(Bool(false))
+  /** the current beat of burst. */
   val beat = RegInit(UInt(0, width = params.outerBeatBits))
+  /** since beatbyte is exp of 2, beat.andR is the last beat. */
   val last = beat.andR
+  /** latch request. */
   val req  = Mux(!busy, io.req.bits, RegEnable(io.req.bits, !busy && io.req.valid))
+  /** need to access bankedstore. */
   val want_data = busy || (io.req.valid && room && io.req.bits.dirty)
 
   io.req.ready := !busy && room
@@ -73,6 +88,7 @@ class SourceC(params: InclusiveCacheParameters) extends Module
   io.evict_req.set := req.set
   io.evict_req.way := req.way
 
+  /* only first beat need to check [[io.evict_safe]] */
   io.bs_adr.valid := (beat.orR || io.evict_safe) && want_data
   io.bs_adr.bits.noop := Bool(false)
   io.bs_adr.bits.way  := req.way
@@ -83,12 +99,15 @@ class SourceC(params: InclusiveCacheParameters) extends Module
   params.ccover(io.req.valid && io.req.bits.dirty && room && !io.evict_safe, "SOURCEC_HAZARD", "Prevented Eviction data hazard with backpressure")
   params.ccover(io.bs_adr.valid && !io.bs_adr.ready, "SOURCEC_SRAM_STALL", "Data SRAM busy")
 
+  /* update [[busy]] and [[beat]]. */
   when (io.req.valid && room && io.req.bits.dirty) { busy := Bool(true) }
   when (io.bs_adr.fire()) {
     when (last) { busy := Bool(false) }
     beat := beat + UInt(1)
   }
 
+  /* banked store access takes 2 cycles. */
+  /** if [[want_data]], need to access bankedstore, else just need [[io.req]]*/
   val s2_latch = Mux(want_data, io.bs_adr.fire(), io.req.fire())
   val s2_valid = RegNext(s2_latch)
   val s2_req = RegEnable(req, s2_latch)
