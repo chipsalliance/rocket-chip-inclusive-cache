@@ -112,6 +112,10 @@ object InclusiveCachePortParameters
   // ... AE take the channel ready into the scheduler, so you need at least flowAE
 }
 
+/**
+  * @param dirReg if ture, will assert a register to Directory between MSHR.
+  *
+  */
 case class InclusiveCacheMicroParameters(
   writeBytes: Int, // backing store update granularity
   memCycles:  Int = 40, // # of L2 clock cycles for a memory round-trip (50ns @ 800MHz)

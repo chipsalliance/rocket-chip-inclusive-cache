@@ -167,6 +167,8 @@ class MSHR(params: InclusiveCacheParameters) extends Module
     * Probe clients
     * ture -> done
     * false -> to be done
+    *
+    * valid at the first beat of last Probes of multiple clients.
     */
   val w_rprobeackfirst = RegInit(Bool(true))
 
