@@ -21,7 +21,10 @@ import Chisel._
 
 class QueuedRequest(params: InclusiveCacheParameters) extends InclusiveCacheBundle(params)
 {
-  val prio   = Vec(3, Bool()) // A=001, B=010, C=100
+  /** A=001, B=010, C=100
+    * @todo[code change] remove B
+    */
+  val prio   = Vec(3, Bool())
   val control= Bool() // control command
   val opcode = UInt(width = 3)
   val param  = UInt(width = 3)

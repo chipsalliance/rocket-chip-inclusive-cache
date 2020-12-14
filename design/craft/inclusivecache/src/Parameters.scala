@@ -152,7 +152,7 @@ case class InclusiveCacheParameters(
     require (a.alignment >= cache.blockBytes)
   }
 
-  // If we are the first level cache, we do not need to support inner-BCE
+  // @todo[code change] If we are the first level cache, we do not need to support inner-BCE
   val firstLevel = !inner.client.clients.exists(_.supports.probe)
   // If we are the last level cache, we do not need to support outer-B
   val lastLevel = !outer.manager.managers.exists(_.regionType > RegionType.UNCACHED)

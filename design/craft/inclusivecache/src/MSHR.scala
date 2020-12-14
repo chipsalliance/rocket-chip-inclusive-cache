@@ -59,6 +59,7 @@ class NestedWriteback(params: InclusiveCacheParameters) extends InclusiveCacheBu
 {
   val set = UInt(width = params.setBits)
   val tag = UInt(width = params.tagBits)
+  // @todo[code change] remove B.
   val b_toN       = Bool() // nested Probes may unhit us
   val b_toB       = Bool() // nested Probes may demote us
   val b_clr_dirty = Bool() // nested Probes clear dirty
@@ -410,6 +411,7 @@ class MSHR(params: InclusiveCacheParameters) extends Module
   io.schedule.bits.a.bits.param   := Mux(req_needT, Mux(meta.hit, BtoT, NtoT), NtoB)
   io.schedule.bits.a.bits.block   := request.size =/= UInt(log2Ceil(params.cache.blockBytes)) ||
                                      !(request.opcode === PutFullData || request.opcode === AcquirePerm)
+  // will be override in scheduler.
   io.schedule.bits.a.bits.source  := UInt(0)
   io.schedule.bits.b.bits.param   := Mux(!s_rprobe, toN, Mux(request.prio(1), request.param, Mux(req_needT, toN, toB)))
   io.schedule.bits.b.bits.tag     := Mux(!s_rprobe, meta.tag, request.tag)
@@ -417,6 +419,7 @@ class MSHR(params: InclusiveCacheParameters) extends Module
   io.schedule.bits.b.bits.clients := meta.clients & ~excluded_client
   io.schedule.bits.c.bits.opcode  := Mux(meta.dirty, ReleaseData, Release)
   io.schedule.bits.c.bits.param   := Mux(meta.state === BRANCH, BtoN, TtoN)
+  // will be override in scheduler.
   io.schedule.bits.c.bits.source  := UInt(0)
   io.schedule.bits.c.bits.tag     := meta.tag
   io.schedule.bits.c.bits.set     := request.set
@@ -428,6 +431,7 @@ class MSHR(params: InclusiveCacheParameters) extends Module
                                          NtoB -> Mux(req_promoteT, NtoT, NtoB),
                                          BtoT -> Mux(honour_BtoT,  BtoT, NtoT),
                                          NtoT -> NtoT)))
+  // will be override in scheduler.
   io.schedule.bits.d.bits.sink    := UInt(0)
   io.schedule.bits.d.bits.way     := meta.way
   io.schedule.bits.d.bits.bad     := bad_grant

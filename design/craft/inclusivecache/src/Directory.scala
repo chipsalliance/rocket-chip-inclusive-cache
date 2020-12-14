@@ -79,7 +79,8 @@ class Directory(params: InclusiveCacheParameters) extends Module
     /** sees same-cycle write. */
     val read   = Valid(new DirectoryRead(params)).flip
     val result = Valid(new DirectoryResult(params))
-    val ready  = Bool() // reset complete; can enable access
+    /** Directory reset complete, can enable access. */
+    val ready  = Bool()
   }
 
   /** width of SRAM. */
