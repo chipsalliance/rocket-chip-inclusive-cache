@@ -87,9 +87,124 @@ case object S_TIP_D    extends CacheState
 case object S_TRUNK_C  extends CacheState
 case object S_TRUNK_CD extends CacheState
 
-/** Miss Status Handling Register of InclusiveCache.
+/** Miss Status Handling Registers of InclusiveCache.
+  * MSHR has register to record current outstanding transaction status.
   *
-  * a MSHR will track address, data, and status for a memory access related to coherence.
+  * There two kind of status register.
+  * 1. scheduled register prefix with `s_`
+  *    0 -> 1 means a event has been emitted to Scheduler.
+  *    1 -> 0 create a event wait to be scheduled.
+  * 1. waiting register prefix with `w_`
+  *    0 -> 1 event is waiting has happened, no need to wait anymore.
+  *    1 -> 0 need to wait a event.
+  *
+  * C: Release/ReleaseData
+  *   1. save to `request` register
+  *   1. wait for directory fire or repeat
+  *   1. create a plan:
+  *     - [[s_execute]] schedule request to [[SourceD]].
+  *     1. Directory changed.
+  *       - [[s_writeback]] schedule [[Directory]] write.
+  *       1. current clean -> dirty since ReleaseData
+  *       1. current TRUNK -> TIP
+  *       1. client () -> INVALID
+  *     1. Directory not changed.
+  *       - do nothing
+  * X: Flush
+  *   1. save to `request` register
+  *   1. wait for directory fire or repeat
+  *   1. create a plan:
+  *     - [[s_execute]] schedule request to [[SourceD]].
+  *     1. hit this level
+  *       - if [[new_meta.clients]] is empty:
+  *         - [[s_rprobe]] schedule Probe/ProbeData to [[SourceB]]
+  *         - [[w_rprobeackfirst]] [[w_rprobeacklast]] wait ProbeAck from [[SinkD]], and write back to directory.
+  *       - [[s_release]] schedule Release/ReleaseData to [[SourceC]]
+  *       - [[w_releaseack]] wait ReleaseAck from [[SinkD]]
+  *       - [[s_flush]] schedule ACK to [[SourceX]]
+  *     1. miss
+  *       - [[s_flush]] schedule ACK to [[SourceX]]
+  * A:
+  *   1. save to `request` register
+  *   1. wait for directory fire or repeat
+  *   1. create a plan:
+  *     - [[s_execute]] schedule request to [[SourceD]].
+  *     PutFullData/PutPartialData/ArithmeticLogic/LogicalData
+  *       - [[s_execute]] schedule request to [[SourceD]].
+  *       1. hit trunk:
+  *         - [[s_pprobe]] schedule Probe/ProbeData to [[SourceB]]
+  *         - [[w_pprobeackfirst]] [[w_pprobeacklast]] [[w_pprobeack]] wait ProbeAck from [[SinkC]]
+  *         - [[s_writeback]] schedule [[Directory]] write
+  *       1. hit branch
+  *         - [[s_acquire]] schedule AcquirePerm to [[SourceA]]
+  *         - [[w_grantfirst]] [[w_grantlast]] [[w_grant]] wait Grant from [[SinkD]]
+  *         - [[s_grantack]] schedule GrantAck to [[SourceE]]
+  *         - [[s_writeback]] schedule [[Directory]] write
+  *       1. hit clean tip
+  *         - [[s_writeback]] schedule [[Directory]] write
+  *       1. hit dirty tip
+  *         - nothing more to do
+  *       1. miss(need to fetch entire cacheline, in case of this transaction granularity is less then a cacheline size.)
+  *         - [[s_acquire]] schedule AcquireBlock to [[SourceA]]
+  *         - [[w_grantfirst]] [[w_grantlast]] [[w_grant]] wait Grant from [[SinkD]]
+  *         - [[s_grantack]] schedule GrantAck to [[SourceE]]
+  *         - [[s_writeback]] schedule [[Directory]] write
+  *       1. miss and replace
+  *         - [[s_release]] schedule Release/ReleaseData to [[SourceC]]
+  *         - [[w_releaseack]] wait ReleaseAck from [[SinkD]]
+  *         - if [[new_meta.clients]] is empty:
+  *           - [[s_rprobe]] schedule Probe/ProbeData to [[SourceB]]
+  *           - [[w_rprobeackfirst]] [[w_rprobeacklast]] wait ProbeAck from [[SinkD]]
+  *           - [[s_acquire]] schedule AcquireBlock to [[SourceA]]
+  *           - [[w_grantfirst]] [[w_grantlast]] [[w_grant]] wait Grant from [[SinkD]]
+  *           - [[s_grantack]] schedule GrantAck to [[SourceE]]
+  *           - [[s_writeback]] schedule [[Directory]] write
+  *     Get
+  *       1. miss
+  *         - [[s_acquire]] schedule AcquireBlock to [[SourceA]]
+  *         - [[w_grantfirst]] [[w_grantlast]] [[w_grant]] wait GrantData from [[SinkD]]
+  *         - [[s_grantack]] schedule GrantAck to [[SourceE]]
+  *       1. hit
+  *         - do nothing
+  *     Intent
+  *       1. [[TLHints.PREFETCH_READ]] miss
+  *         - [[s_acquire]] schedule AcquireBlock to [[SourceA]]
+  *         - [[w_grantfirst]] [[w_grantlast]] [[w_grant]] wait GrantData from [[SinkD]]
+  *         - [[s_grantack]] schedule GrantAck to [[SourceE]]
+  *       1. [[TLHints.PREFETCH_READ]] hit
+  *         - do nothing
+  *       1. [[TLHints.PREFETCH_WRITE]] miss
+  *         - [[s_acquire]] schedule AcquireBlock toT to [[SourceA]]
+  *         - [[w_grantfirst]] [[w_grantlast]] [[w_grant]] wait GrantData from [[SinkD]]
+  *         - [[s_grantack]] schedule GrantAck to [[SourceE]]
+  *       1. [[TLHints.PREFETCH_WRITE]] hit BRANCH
+  *         - [[s_acquire]] schedule AcquirePerm toT to [[SourceA]]
+  *         - [[w_grantfirst]] [[w_grantlast]] [[w_grant]] wait Grant from [[SinkD]]
+  *         - [[s_grantack]] schedule GrantAck to [[SourceE]]
+  *       1. [[TLHints.PREFETCH_WRITE]] hit
+  *         - do nothing
+  *     AcquireBlock
+  *       1. toT miss
+  *         - [[s_acquire]] schedule AcquireBlock toT to [[SourceA]]
+  *         - [[w_grantfirst]] [[w_grantlast]] [[w_grant]] wait GrantData from [[SinkD]]
+  *         - [[s_grantack]] schedule GrantAck to [[SourceE]]
+  *       1. toT hit BRANCH
+  *         - [[s_acquire]] schedule AcquirePerm toT to [[SourceA]]
+  *         - [[w_grantfirst]] [[w_grantlast]] [[w_grant]] wait Grant from [[SinkD]]
+  *         - [[s_grantack]] schedule GrantAck to [[SourceE]]
+  *       1. toB miss
+  *         - [[s_acquire]] schedule AcquireBlock toB to [[SourceA]]
+  *         - [[w_grantfirst]] [[w_grantlast]] [[w_grant]] wait GrantData from [[SinkD]]
+  *         - [[s_grantack]] schedule GrantAck to [[SourceE]]
+  *       1. hit
+  *         - do nothing
+  *     AcquirePerm
+  *       1. toT hit BRANCH
+  *         - [[s_acquire]] schedule AcquirePerm toT to [[SourceA]]
+  *         - [[w_grantfirst]] [[w_grantlast]] [[w_grant]] wait Grant from [[SinkD]]
+  *         - [[s_grantack]] schedule GrantAck to [[SourceE]]
+  *       1. hit
+  *         - do nothing
   *
   */
 class MSHR(params: InclusiveCacheParameters) extends Module
@@ -289,6 +404,7 @@ class MSHR(params: InclusiveCacheParameters) extends Module
   /* write back directory.
    * (!s_release && w_rprobeackfirst): if this writeback is by Release, writeback metadata after getting ProbeAck,
    *                                   this writeback occurred early than the death of this MSHR.
+   * This is directory write back early for nested Release/ReleaseData in C channel.
    */
   io.schedule.bits.dir.valid := (!s_release && w_rprobeackfirst) || (!s_writeback && no_wait)
   io.schedule.bits.reload := no_wait
@@ -736,7 +852,8 @@ class MSHR(params: InclusiveCacheParameters) extends Module
         /* directory writeback is scheduled. */
         s_writeback := Bool(false)
       }
-      /* request permission is released to None, and any of clients is invalided. */
+      // request permission is released to None, and any of clients is invalided.
+      // @todo this should be assert((new_meta.clients & new_clientBit) =/= 0.U)
       when (isToN(new_request.param) && (new_meta.clients & new_clientBit) =/= UInt(0)) {
         /* directory writeback is scheduled. */
         s_writeback := Bool(false)
@@ -766,76 +883,66 @@ class MSHR(params: InclusiveCacheParameters) extends Module
         }
       }
     }
-    // For A channel requests
     .otherwise {
-      /** indicate this MSHR is in executing. */
+
       s_execute := Bool(false)
-      /* If not hit, directory will return a victim cacheline to store new data.
-       * if this cacheline is invalid, don't need to do a eviction otherwise evict the cacheline.
-       */
+      // If miss, directory will return a random victim cacheline to store new data.
+      // if this cacheline is invalid, don't need to do a eviction otherwise evict the cacheline.
       when (!new_meta.hit && new_meta.state =/= INVALID) {
-        /* release data is scheduled. */
+        // release data is scheduled.
         s_release := Bool(false)
-        /* wait for ReleaseAck. */
+        // wait for ReleaseAck.
         w_releaseack := Bool(false)
-        /* if there are clients containing this cacheline. Probe it back firstly. */
+        // if there are clients containing this cacheline. Probe it back firstly.
         when (Bool(!params.firstLevel) & (new_meta.clients =/= UInt(0))) {
-          /* Probe caused by Release is scheduled. */
+          // Probe caused by Release is scheduled.
           s_rprobe := Bool(false)
-          /* Wait for ProbeAck caused by Release. */
+          // Wait for ProbeAck caused by Release.
           w_rprobeackfirst := Bool(false)
           w_rprobeacklast := Bool(false)
         }
       }
-      /* 1. not hit, acquire data from manger.
-       * 2. cache is BRANCH and need to request need TIP permission.
-       *
-       * @todo since this is last level cache, remove CacheCork and always give T from manger.
-       */
+      // 1. miss, acquire data from manger.
+      // 2. cache is BRANCH and need to request need TIP permission.
+      //
+      // @todo since this is last level cache, remove CacheCork and always give T from manger.
       when (!new_meta.hit || (new_meta.state === BRANCH && new_needT)) {
-        /* acquire data is scheduled. */
+        // acquire data is scheduled.
         s_acquire := Bool(false)
-        /* wait for Grant or GrantData */
+        // wait for Grant or GrantData
         w_grantfirst := Bool(false)
         w_grantlast := Bool(false)
         w_grant := Bool(false)
-        /* GrantAck is scheduled. */
+        // GrantAck is scheduled.
         s_grantack := Bool(false)
-        /* Directory is scheduled. */
+        // Directory write is scheduled.
         s_writeback := Bool(false)
       }
-      /* Schedule Probe caused by permission transform(Acquire).
-       *
-       * 1. hit
-       * 2. [[request]] need TIP permission or this level is TRUNK.
-       * 3. There are other clients need to Probe.
-       */
+      // Schedule Probe caused by permission transform(Acquire).
+      // 1. hit
+      // 2. [[request]] need TIP permission or this level is TRUNK.
+      // 3. There are other clients need to Probe.
       when (Bool(!params.firstLevel) && (new_meta.hit &&
             (new_needT || new_meta.state === TRUNK) &&
             (new_meta.clients & ~new_skipProbe) =/= UInt(0))) {
-        /* a Probe caused by Acquire is scheduled. */
+        // a Probe caused by Acquire is scheduled.
         s_pprobe := Bool(false)
-        /* wait for ProbeAck. */
+        // wait for ProbeAck.
         w_pprobeackfirst := Bool(false)
         w_pprobeacklast := Bool(false)
         w_pprobeack := Bool(false)
-        /* directory writeback is scheduled. */
+        // directory write is scheduled.
         s_writeback := Bool(false)
       }
-      /* Scheduler needed by Acquire. */
+
+      // Scheduler needed by Acquire.
       when (new_request.opcode === AcquireBlock || new_request.opcode === AcquirePerm) {
-        /* wait for GrantAck. */
+        // wait for GrantAck.
         w_grantack := Bool(false)
-        /* directory writeback is scheduled. */
+        // directory writeback is scheduled.
         s_writeback := Bool(false)
       }
-      /* PutFullData
-       * PutPartialData
-       * ArithmeticLogic
-       * LogicalData
-       *
-       * write will cause this Tip dirty.
-       */
+
       when (!new_request.opcode(2) && new_meta.hit && !new_meta.dirty) {
         s_writeback := Bool(false)
       }
