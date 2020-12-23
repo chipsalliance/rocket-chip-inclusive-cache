@@ -66,16 +66,34 @@ class BankedStoreOuterDecoded(params: InclusiveCacheParameters) extends BankedSt
   *                                           port: "xxxxxxxx" beat will access these banks in a cycle.
   *
   *
-  * request: set way beat mask -> subbank access?
+  * User Parameters:
+  *   1. way size
+  *   1. set size
+  *   1. cacheline size([[freechips.rocketchip.subsystem.CacheBlockBytes]])
+  *   1. BankedStore granularity(writeBytes)
+  *   1. outstanding number of [[BankedStore]] request(portFactor)
+  *     - up to 5 request can access [[BankedStore]] simultaneously: sinkC, sinkD, sourceC, sourceD read, sourceD write
+  *     - so if port is smaller than 5, back-pressure will be push back to other components
+  *     - larger `portFactor` will result a shallower SRAM, causing larger die-size and lower latency
   *
-  * portFactor = 4
-  * beatBytes = 64
-  * rowBytes = beatBytes * portFactor = 4 * 64
-  * writeBytes = 8                                                  -> width of a subbank.("x" in the graph)
-  * numBanks = rowBytes /  writeBytes = 32
-  * ports = beatBytes / params.micro.writeBytes = 64 / 8 = 8        -> how many subbanks should be accessed in each beat(client and manger might be different).
-  * selectWidth = numBanks / ports = 4                              -> how many stacks of "xxxxxxxx"
-  * bankBits = log(numBanks / ports) = 2
+  * Calculated Parameters:
+  *   1. `rowBytes` is the size of a row.
+  *      row is the data structure to support simultaneously access configured by `portFactor`.
+  *      rowBytes = beatBytes * portFactor
+  *   1. `numBanks` is the number of subBank.
+  *      numBanks = rowBytes / writeBytes
+  *
+  * Calculated Diplomatic Parameters(client and manager might be different):
+  *   1. beatBytes: data size transmitted by TileLink for each beat, aka TileLink Bundle physical size
+  *   1. `ports` is how many subBanks should be accessed in each beat.
+  *      these subBanks become a stack.
+  *      beatBytes / params.micro.writeBytes
+  *   1. `selectWidth` is the width of the stack size.(One-Hot signal)
+  *      selectWidth = numBanks / ports
+  *   1. `bankBits` is the width of the stack size.(UInt signal)
+  *      bankBits = log2(bankBits)
+  *   1. `select` is index of stack.(One-Hot signal)
+  *      subBanks access by a beat becomes a stack.
   *
   * way -> 0 set -> 0 beat -> 0 =>
   * index = 0                                                       -> index of banks(not shown in graph)
@@ -97,15 +115,58 @@ class BankedStoreOuterDecoded(params: InclusiveCacheParameters) extends BankedSt
 class BankedStore(params: InclusiveCacheParameters) extends Module
 {
   val io = new Bundle {
+    /** SinkC address write back to [[BankedStore]].
+      * ProbeBlock -> ProbeAckData
+      */
     val sinkC_adr = Decoupled(new BankedStoreInnerAddress(params)).flip
+    /** SinkC data write back to [[BankedStore]].
+      * ProbeBlock -> ProbeAckData
+      */
     val sinkC_dat = new BankedStoreInnerPoison(params).flip
+    /** SinkD address write back to [[BankedStore]].
+      * AcquireBlock -> GrantData
+      */
     val sinkD_adr = Decoupled(new BankedStoreOuterAddress(params)).flip
+    /** SinkD data write back to [[BankedStore]].
+      * AcquireBlock -> GrantData
+      * (no AccessAckData, since Get will be converted to Acquire)
+      */
     val sinkD_dat = new BankedStoreOuterPoison(params).flip
+    /** SourceC address read from [[BankedStore]].
+      * ReleaseData: flush or eviction.
+      */
     val sourceC_adr = Decoupled(new BankedStoreOuterAddress(params)).flip
+    /** SourceC data read from [[BankedStore]].
+      * ReleaseData: flush or eviction.
+      */
     val sourceC_dat = new BankedStoreOuterDecoded(params)
+    /** SourceD address read from [[BankedStore]].
+      * ArithmeticLogic/LogicalData/Get -> AccessAckData
+      * AcquireBlock -> GrantAckData
+      *
+      * @todo check this.
+      * @note
+      * PutFullData/PutPartialData -> AccessAck(when Put granularity is less than subbank size)
+      */
     val sourceD_radr = Decoupled(new BankedStoreInnerAddress(params)).flip
+    /** SourceD address read from [[BankedStore]].
+      * ArithmeticLogic/LogicalData/Get -> AccessAckData
+      * AcquireBlock -> GrantData
+      *
+      * @todo check this.
+      * @note
+      * PutFullData/PutPartialData -> AccessAck(when Put granularity is less than subbank size)
+      */
     val sourceD_rdat = new BankedStoreInnerDecoded(params)
+    /** SourceD address write to [[BankedStore]].
+      * ArithmeticLogic/LogicalData -> AccessAckData
+      * PutFullData/PutPartialData -> AccessAck
+      */
     val sourceD_wadr = Decoupled(new BankedStoreInnerAddress(params)).flip
+    /** SourceD data write to [[BankedStore]].
+      * ArithmeticLogic/LogicalData -> AccessAckData
+      * PutFullData/PutPartialData -> AccessAck
+      */
     val sourceD_wdat = new BankedStoreInnerPoison(params).flip
   }
 
@@ -139,29 +200,19 @@ class BankedStore(params: InclusiveCacheParameters) extends Module
         data = UInt(width = codeBits)
       )
   }
-  // These constraints apply on the port priorities:
-  //  sourceC > sinkD     outgoing Release > incoming Grant      (we start eviction+refill concurrently)
-  //  sinkC > sourceC     incoming ProbeAck > outgoing ProbeAck  (we delay probeack writeback by 1 cycle for QoR)
-  //  sinkC > sourceDr    incoming ProbeAck > SourceD read       (we delay probeack writeback by 1 cycle for QoR)
-  //  sourceDw > sourceDr modified data visible on next cycle    (needed to ensure SourceD forward progress)
-  //  sinkC > sourceC     inner ProbeAck > outer ProbeAck        (make wormhole routing possible [not yet implemented])
-  //  sinkC&D > sourceD*  beat arrival > beat read|update        (make wormhole routing possible [not yet implemented])
-
-  // Combining these restrictions yields a priority scheme of:
-  //  sinkC > sourceC > sinkD > sourceDw > sourceDr
-  //          ^^^^^^^^^^^^^^^ outer interface
-
-  // Requests have different port widths, but we don't want to allow cutting in line.
-  // Suppose we have requests A > B > C requesting ports --A-, --BB, ---C.
-  // The correct arbitration is to allow --A- only, not --AC.
-  // Obviously --A-, BB--, ---C should still be resolved to BBAC.
 
   /** bundle to access [[cc_banks]]. */
   class Request extends Bundle {
+    /** write enable. */
     val wen      = Bool()
     val index    = UInt(width = rowBits)
+    /** which bank will be selected by this request.
+      * It will block lower priority banks.
+      */
     val bankSel  = UInt(width = numBanks)
-    /** OR of all higher priority bankSels. */
+    /** A higher priority select the subbank.
+      * it will block same subbank access for this request.
+      */
     val bankSum  = UInt(width = numBanks)
     /** ports actually activated by request. */
     val bankEn   = UInt(width = numBanks)
@@ -224,7 +275,28 @@ class BankedStore(params: InclusiveCacheParameters) extends Module
   val sourceD_rreq = req(io.sourceD_radr, R, innerData)
   val sourceD_wreq = req(io.sourceD_wadr, W, io.sourceD_wdat.data)
 
-  // See the comments above for why this prioritization is used
+  /** @todo clear this.
+    *
+    * See the comments above for why this prioritization is used
+    *
+    * These constraints apply on the port priorities:
+    *  sourceC > sinkD     outgoing Release > incoming Grant      (we start eviction+refill concurrently)
+    *  sinkC > sourceC     incoming ProbeAck > outgoing ProbeAck  (we delay probeack writeback by 1 cycle for QoR)
+    *  sinkC > sourceDr    incoming ProbeAck > SourceD read       (we delay probeack writeback by 1 cycle for QoR)
+    *  sourceDw > sourceDr modified data visible on next cycle    (needed to ensure SourceD forward progress)
+    *  sinkC > sourceC     inner ProbeAck > outer ProbeAck        (make wormhole routing possible [not yet implemented])
+    *  sinkC&D > sourceD*  beat arrival > beat read|update        (make wormhole routing possible [not yet implemented])
+    *
+    * Combining these restrictions yields a priority scheme of:
+    *  sinkC > sourceC > sinkD > sourceDw > sourceDr
+    *          ^^^^^^^^^^^^^^^ outer interface
+    *
+    *  Requests have different port widths, but we don't want to allow cutting in line.
+    *  Suppose we have requests A > B > C requesting ports --A-, --BB, ---C.
+    *  The correct arbitration is to allow --A- only, not --AC.
+    *  Obviously --A-, BB--, ---C should still be resolved to BBAC.
+    *
+    */
   val reqs = Seq(sinkC_req, sourceC_req, sinkD_req, sourceD_wreq, sourceD_rreq)
 
   // Connect priorities; note that even if a request does not go through due to failing
@@ -242,9 +314,9 @@ class BankedStore(params: InclusiveCacheParameters) extends Module
     val idx = PriorityMux(sel, reqs.map(_.index))
     val data= PriorityMux(sel, reqs.map(_.data(i)))
 
-    /* write */
+    // write
     when (wen && en) { b.write(idx, data) }
-    /* read */
+    // read
     RegEnable(b.read(idx, !wen && en), RegNext(!wen && en))
   })
 
