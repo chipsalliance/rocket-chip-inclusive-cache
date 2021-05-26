@@ -44,9 +44,12 @@ class Scheduler(params: InclusiveCacheParameters) extends Module
 
   // create sink and source and connect to correspond [[TLBundle]].
   val sourceA = Module(new SourceA(params))
+  // @todo[code change] remove this
   val sourceB = Module(new SourceB(params))
+  // @todo[code change] remove this
   val sourceC = Module(new SourceC(params))
   val sourceD = Module(new SourceD(params))
+  // @todo[code change] remove this
   val sourceE = Module(new SourceE(params))
   val sourceX = Module(new SourceX(params))
 
@@ -104,7 +107,7 @@ class Scheduler(params: InclusiveCacheParameters) extends Module
     */
   val nestedwb = Wire(new NestedWriteback(params))
 
-  // Deliver messages from Sinks to MSHRs.
+  // Response broadcast messages from Sinks to MSHRs.
   mshrs.zipWithIndex.foreach { case (m, i) =>
     // valid when clients replying Probe by sending ProbeAck/ProbeAckData to SinkC.
     // It will update [[MSHR.probes_done]] and [[MSHR.probe_toN]].
@@ -113,9 +116,14 @@ class Scheduler(params: InclusiveCacheParameters) extends Module
     // So only need to match set.
     // if Probe is sent, C won't be allowed to allocate MSHR.
     // if C is in the MSHR, A with same set will be stall, so cannot send a Probe, then cannot receive ProbeAck.
+
+    // C: use address routing.
+    // @todo why just match one set?
     m.io.sinkc.valid := sinkC.io.resp.valid && sinkC.io.resp.bits.set === m.io.status.bits.set
     // encode index of MSHR as source in D channel, sink in E channel.
+    // D: use source routing
     m.io.sinkd.valid := sinkD.io.resp.valid && sinkD.io.resp.bits.source === UInt(i)
+    // E: use sink routing
     m.io.sinke.valid := sinkE.io.resp.valid && sinkE.io.resp.bits.sink   === UInt(i)
     // broadcast to each MSHR.
     m.io.sinkc.bits := sinkC.io.resp.bits
