@@ -50,6 +50,7 @@ class SourceA(params: InclusiveCacheParameters) extends Module
   a.bits.param   := io.req.bits.param
   a.bits.size    := UInt(params.offsetBits)
   a.bits.source  := io.req.bits.source
+  /* convert tag and set to address. */
   a.bits.address := params.expandAddress(io.req.bits.tag, io.req.bits.set, UInt(0))
   a.bits.mask    := ~UInt(0, width = params.outer.manager.beatBytes)
   a.bits.data    := UInt(0)

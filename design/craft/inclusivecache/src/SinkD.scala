@@ -35,14 +35,21 @@ class SinkD(params: InclusiveCacheParameters) extends Module
   val io = new Bundle {
     val resp = Valid(new SinkDResponse(params)) // Grant or ReleaseAck
     val d = Decoupled(new TLBundleD(params.outer.bundle)).flip
-    // Lookup the set+way from MSHRs
+    /** request to MSHR with tilelink sourceId:
+      * ask for set(D channel don't have address) and way
+      */
     val source = UInt(width = params.outer.bundle.sourceBits)
+    /** way response from MSHR. */
     val way    = UInt(width = params.wayBits).flip
+    /** set response from MSHR. */
     val set    = UInt(width = params.setBits).flip
-    // Banked Store port
+    /** address access to banked store only. */
     val bs_adr = Decoupled(new BankedStoreOuterAddress(params))
+    /** data write to banked store. */
     val bs_dat = new BankedStoreOuterPoison(params)
-    // WaR hazard
+    /* WaR hazard.
+     * @todo
+     */
     val grant_req = new SourceDHazard(params)
     val grant_safe = Bool().flip
   }
@@ -53,13 +60,24 @@ class SinkD(params: InclusiveCacheParameters) extends Module
   val (first, last, _, beat) = params.outer.count(d)
   val hasData = params.outer.hasData(d.bits)
 
+  /* latch [[d.bits.source]] with [[d.valid]]. */
   io.source := Mux(d.valid, d.bits.source, RegEnable(d.bits.source, d.valid))
+  /* forward MSHR way, set reply to SourceD directly. */
   io.grant_req.way := io.way
   io.grant_req.set := io.set
 
-  // Also send Grant(NoData) to BS to ensure correct data ordering
+  /* Also send Grant(NoData) to BS to ensure correct data ordering.
+   * used for [[MSHR.w_grantfirst]] and [[MSHR.w_grantlast]]
+   */
   io.resp.valid := (first || last) && d.fire()
+  /* d channel ready:
+   * banked store ready to access.
+   * sourceD tell us this grant is safe.(only first beat need to check)
+   */
   d.ready := io.bs_adr.ready && (!first || io.grant_safe)
+  /* first beat access to banked store need [[io.grant_safe]].
+   * after receive first beat, block others access to the reset of this cacheline with [[io.bs_adr.bits.noop]]
+   */
   io.bs_adr.valid := !first || (d.valid && io.grant_safe)
   params.ccover(d.valid && first && !io.grant_safe, "SINKD_HAZARD", "Prevented Grant data hazard with backpressure")
   params.ccover(io.bs_adr.valid && !io.bs_adr.ready, "SINKD_SRAM_STALL", "Data SRAM busy")
@@ -71,6 +89,7 @@ class SinkD(params: InclusiveCacheParameters) extends Module
   io.resp.bits.sink   := d.bits.sink
   io.resp.bits.denied := d.bits.denied
 
+  /* block others with noop */
   io.bs_adr.bits.noop := !d.valid || !hasData
   io.bs_adr.bits.way  := io.way
   io.bs_adr.bits.set  := io.set

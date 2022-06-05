@@ -29,6 +29,9 @@ class SourceBRequest(params: InclusiveCacheParameters) extends InclusiveCacheBun
   val clients = UInt(width = params.clientBits)
 }
 
+/** just like [[TLBroadcast]] with filter.
+  * probe clients based on Directory.
+  */
 class SourceB(params: InclusiveCacheParameters) extends Module
 {
   val io = new Bundle {
@@ -74,6 +77,7 @@ class SourceB(params: InclusiveCacheParameters) extends Module
     b.bits.opcode  := TLMessages.Probe
     b.bits.param   := param
     b.bits.size    := UInt(params.offsetBits)
+    /* static decode client to sourceId. */
     b.bits.source  := params.clientSource(next)
     b.bits.address := params.expandAddress(tag, set, UInt(0))
     b.bits.mask    := ~UInt(0, width = params.inner.manager.beatBytes)

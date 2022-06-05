@@ -28,6 +28,109 @@ import freechips.rocketchip.tilelink._
 import freechips.rocketchip.subsystem.BankedL2Key
 import freechips.rocketchip.util._
 
+/** [[InclusiveCache]] is a
+  * 1. TileLink based.
+  * 2. strictly inclusive.
+  * 3. last-level cache(Probe by manager's B channel is not implemented).
+  * 4. random replacement policy.
+  *
+  * Behavior:
+  *
+  * Message between Inclusive Cache and clients:
+  *   1. A channel from clients:
+  *     - PutFullData: @todo
+  *     - PutPartialData: @todo
+  *     - ArithmeticLogic, LogicalData:
+  *       1. request to directory and MSHR, put request to [[SinkA.putbuffer]].
+  *       1. directory delay 1 or 2 cycle([[InclusiveCacheMicroParameters.dirReg]]), send back to MSHR.
+  *       1. when MSHR get message from directory, create a plan, scheduler at next cycle.
+  *       1. scheduler will execute based on the plan:
+  *         - client have blocks -> schedule Probe to client -> wait ProbeAck/ProbeAckData
+  *         - not have enough permission -> AcquireBlock/AcquirePerm from manger -> wait Grant/GrantData
+  *         - after all wait is done([[MSHR.no_wait]]), schedule [[SourceD]] to execute and write back metadata to [[Directory]] simultaneously.
+  *         - [[SourceD]] is a pipeline has 4 stages:
+  *           1. [[SourceD]] read [[BankedStore]] at first stage.
+  *           1. [[SourceD]] read from [[SinkA.putbuffer]] at second stage.
+  *           1. [[SourceD]] send TileLink message at third stage(not buffered).
+  *           1. [[SourceD]] execute atomic operation and write [[BankedStore]] at fourth stage.
+  *     - Get: @todo
+  *     - Intent:
+  *       1. request to directory and MSHR.
+  *       1. directory delay 1 or 2 cycle([[InclusiveCacheMicroParameters.dirReg]]), send back to MSHR.
+  *       1. when MSHR get message from directory, create a plan, schedule at next cycle.
+  *       1. scheduler will execute based on the plan:
+  *         - client have blocks and hint message is [[TLHints.PREFETCH_WRITE]] -> schedule Probe to client -> wait ProbeAck/ProbeAckData
+  *         - not have enough permission -> AcquireBlock/AcquirePerm from manger -> wait Grant/GrantData
+  *         - after all wait is done([[MSHR.no_wait]]), schedule [[SourceD]] to execute and write back metadata to [[Directory]] simultaneously.
+  *         - [[SourceD]] is a pipeline has 3 stages:
+  *           1. [[SourceD]] piped at first stage.
+  *           1. [[SourceD]] piped at second stage.
+  *           1. [[SourceD]] send TileLink message at third stage(not buffered).
+  *     - AcquireBlock:
+  *       1. request to directory and MSHR.
+  *       1. directory delay 1 or 2 cycle([[InclusiveCacheMicroParameters.dirReg]]), send back to MSHR.
+  *       1. when MSHR get message from directory, create a plan, schedule at next cycle.
+  *       1. scheduler will execute based on the plan:
+  *         - client have blocks and Acquire to Tip -> schedule Probe to client -> wait ProbeAck/ProbeAckData
+  *         - not have enough permission -> AcquireBlock/AcquirePerm from manger -> wait Grant/GrantData
+  *         - after [[MSHR.w_pprobeack]] and [[MSHR.w_grant]], schedule [[SourceD]] to execute
+  *         - [[SourceD]] is a pipeline has 3 stages:
+  *           1. [[SourceD]] read [[BankedStore]] at first stage.
+  *           1. [[SourceD]] piped at second stage.
+  *           1. [[SourceD]] send Grant to client at third stage(not buffered).
+  *         - after [[MSHR.w_grantack]] write back metadata to [[Directory]] simultaneously.
+  *     - AcquirePerm
+  *       1. request to directory and MSHR.
+  *       1. directory delay 1 or 2 cycle([[InclusiveCacheMicroParameters.dirReg]]), send back to MSHR.
+  *       1. when MSHR get message from directory, create a plan, schedule at next cycle.
+  *       1. scheduler will execute based on the plan:
+  *         - client have blocks -> schedule Probe to client -> wait ProbeAck/ProbeAckData
+  *         - not have enough permission -> AcquireBlock/AcquirePerm from manger -> wait Grant/GrantData
+  *         - after [[MSHR.w_pprobeack]] and [[MSHR.w_grant]], schedule [[SourceD]] to execute
+  *         - [[SourceD]] is a pipeline has 3 stages:
+  *           1. [[SourceD]] piped at first stage.
+  *           1. [[SourceD]] piped at second stage.
+  *           1. [[SourceD]] send TileLink message at third stage(not buffered).
+  *         - after [[MSHR.w_grantack]] write back metadata to [[Directory]] simultaneously.
+  *   1. B channel to clients:
+  *     - ProbeBlock: send to clients when [[MSHR.s_pprobe]] or [[MSHR.s_rprobe]]
+  *     - PutFullData, PutPartialData, ArithmeticData, LogicalData, Get, Intent, ProbePerm: not supported.
+  *   1. C channel from clients:
+  *     - ProbeAck: modify [[MSHR.w_pprobeackfirst]] and [[MSHR.w_pprobeacklast]]
+  *     - ProbeAckData: modify [[MSHR.w_pprobeackfirst]] and [[MSHR.w_pprobeacklast]]
+  *     - Release:
+  *       1. request to directory and MSHR.
+  *       1. directory delay 1 or 2 cycle([[InclusiveCacheMicroParameters.dirReg]]), send back to MSHR.
+  *       1. when MSHR get message from directory, create a plan, schedule at next cycle.
+  *       1. scheduler will execute based on the plan:
+  *         - after all wait is done([[MSHR.no_wait]]), schedule [[SourceD]] to execute and write back metadata to [[Directory]] simultaneously.
+  *         - [[SourceD]] is a pipeline has 3 stages:
+  *           1. [[SourceD]] piped at first stage.
+  *           1. [[SourceD]] read at second stage.
+  *           1. [[SourceD]] send TileLink message at third stage(not buffered).
+  *     - ReleaseData:
+  *       1. request to directory and MSHR.
+  *       1. directory delay 1 or 2 cycle([[InclusiveCacheMicroParameters.dirReg]]), send back to MSHR.
+  *       1. when MSHR get message from directory, create a plan, schedule at next cycle.
+  *       1. scheduler will execute based on the plan:
+  *         - after all wait is done([[MSHR.no_wait]]), schedule [[SourceD]] to execute and write back metadata to [[Directory]] simultaneously.
+  *         - [[SourceD]] is a pipeline has 3 stages:
+  *           1. [[SourceD]] piped at first stage.
+  *           1. [[SourceD]] read `SinkC.putbuffer`.
+  *           1. [[SourceD]] send TileLink message at third stage(not buffered).
+  *           1. [[SourceD]] write [[BankedStore]] at fourth stage.
+  *     - AccessAck, AccessAckData, HintAck: not supported.
+  *   1. D channel to clients: @todo
+  *     - AccessAck
+  *     - AccessAckData
+  *     - HintAck
+  *     - Grant
+  *     - GrantData
+  *     - ReleaseAck
+  *   1. E channel from clients:
+  *     - GrantAck: modify [[MSHR.w_grantack]] to true.
+  *
+  */
 class InclusiveCache(
   val cache: CacheParameters,
   val micro: InclusiveCacheMicroParameters,

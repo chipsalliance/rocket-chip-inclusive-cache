@@ -26,9 +26,13 @@ import freechips.rocketchip.util.DescribedSRAM
 
 class DirectoryEntry(params: InclusiveCacheParameters) extends InclusiveCacheBundle(params)
 {
-  val dirty   = Bool() // true => TRUNK or TIP
+  /** true => TRUNK or TIP. */
+  val dirty   = Bool()
+  /** TileLink status Tip/Trunk/Branch/Invalid. */
   val state   = UInt(width = params.stateBits)
+  /** indicate which masters(Tip/Branch/Trunk) has this cacheline. */
   val clients = UInt(width = params.clientBits)
+  /** check if a address is in current set. */
   val tag     = UInt(width = params.tagBits)
 }
 
@@ -45,21 +49,41 @@ class DirectoryRead(params: InclusiveCacheParameters) extends InclusiveCacheBund
   val tag = UInt(width = params.tagBits)
 }
 
+/** reply to [[DirectoryRead]]. */
 class DirectoryResult(params: InclusiveCacheParameters) extends DirectoryEntry(params)
 {
   val hit = Bool()
   val way = UInt(width = params.wayBits)
 }
 
+/** A bank has a directory to record metadata.
+  * 1. read not cached.
+  *
+  * {{{
+  *   W    R
+  *
+  *    SRAM
+  * }}}
+  *   0 1 2
+  * W ? w d   // w-> write, d -> done
+  * R
+  *
+  *
+  * 2. read cached.
+  *
+  */
 class Directory(params: InclusiveCacheParameters) extends Module
 {
   val io = new Bundle {
     val write  = Decoupled(new DirectoryWrite(params)).flip
-    val read   = Valid(new DirectoryRead(params)).flip // sees same-cycle write
+    /** sees same-cycle write. */
+    val read   = Valid(new DirectoryRead(params)).flip
     val result = Valid(new DirectoryResult(params))
-    val ready  = Bool() // reset complete; can enable access
+    /** Directory reset complete, can enable access. */
+    val ready  = Bool()
   }
 
+  /** width of SRAM. */
   val codeBits = new DirectoryEntry(params).getWidth
 
   val (cc_dir, omSRAM) =  DescribedSRAM(
@@ -69,16 +93,26 @@ class Directory(params: InclusiveCacheParameters) extends Module
     data = Vec(params.cache.ways, UInt(width = codeBits))
   )
 
-  val write = Queue(io.write, 1) // must inspect contents => max size 1
-  // a flow Q creates a WaR hazard... this MIGHT not cause a problem
-  // a pipe Q causes combinational loop through the scheduler
+  /* must inspect contents => max size 1
+   * a flow Q creates a WaR hazard... this MIGHT not cause a problem
+   * a pipe Q causes combinational loop through the scheduler
+   * @todo delay one cycle for write.
+   *       guarantee Write are Read is in a correct order.
+   */
+  val write = Queue(io.write, 1)
 
-  // Wiping the Directory with 0s on reset has ultimate priority
+  /* Wiping the Directory with 0s on reset has ultimate priority. */
   val wipeCount = RegInit(UInt(0, width = params.setBits + 1))
-  val wipeOff = RegNext(Bool(false), Bool(true)) // don't wipe tags during reset
+  /** don't wipe tags during reset.
+    * first cycle is false, then true.
+    */
+  val wipeOff = RegNext(Bool(false), Bool(true))
+  /** signal indicate wiping is finished. */
   val wipeDone = wipeCount(params.setBits)
+  /** signal indicate which set is wiping. */
   val wipeSet = wipeCount(params.setBits - 1,0)
 
+  /* only ready after all set is clear. */
   io.ready := wipeDone
   when (!wipeDone && !wipeOff) { wipeCount := wipeCount + UInt(1) }
   assert (wipeDone || !io.read.valid)
@@ -90,6 +124,7 @@ class Directory(params: InclusiveCacheParameters) extends Module
 
   require (codeBits <= 256)
 
+  /* single port ram, write only not when not reading. */
   write.ready := !io.read.valid
   when (!ren && wen) {
     cc_dir.write(
@@ -109,7 +144,11 @@ class Directory(params: InclusiveCacheParameters) extends Module
   val tag = params.dirReg(RegEnable(io.read.bits.tag, ren), ren1)
   val set = params.dirReg(RegEnable(io.read.bits.set, ren), ren1)
 
-  // Compute the victim way in case of an evicition
+  /* Compute the victim way in case of an evicition.
+   * Random replacement
+   * @note if use [[freechips.rocketchip.util.ReplacementPolicy]] it would be better.
+   * @todo understand codes below.
+   */
   val victimLFSR = LFSR16(params.dirReg(ren))(InclusiveCacheParameters.lfsrBits-1, 0)
   val victimSums = Seq.tabulate(params.cache.ways) { i => UInt((1 << InclusiveCacheParameters.lfsrBits)*i / params.cache.ways) }
   val victimLTE  = Cat(victimSums.map { _ <= victimLFSR }.reverse)
@@ -120,8 +159,13 @@ class Directory(params: InclusiveCacheParameters) extends Module
   assert (!ren2 || ((victimSimp >> 1) & ~victimSimp) === UInt(0)) // monotone
   assert (!ren2 || PopCount(victimWayOH) === UInt(1))
 
+  /* if read didn't hit in SRAM, but hit data last cycle write to SRAM. */
+
+  /** current cycle read match previous write. */
   val setQuash = bypass_valid && bypass.set === set
+  /** */
   val tagMatch = bypass.data.tag === tag
+  /** */
   val wayMatch = bypass.way === victimWay
 
   val ways = Vec(regout.map(d => new DirectoryEntry(params).fromBits(d)))

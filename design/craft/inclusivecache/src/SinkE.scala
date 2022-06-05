@@ -17,30 +17,36 @@
 
 package sifive.blocks.inclusivecache
 
-import Chisel._
+import chisel3._
+import chisel3.util._
 import freechips.rocketchip.tilelink._
 
+/** Interface between MSHR and Sink E. */
 class SinkEResponse(params: InclusiveCacheParameters) extends InclusiveCacheBundle(params)
 {
-  val sink = UInt(width = params.inner.bundle.sinkBits)
+  val sink = UInt(params.inner.bundle.sinkBits.W)
 }
 
 class SinkE(params: InclusiveCacheParameters) extends Module
 {
-  val io = new Bundle {
+  val io = IO(new Bundle {
+    /** Response to MSHR. */
     val resp = Valid(new SinkEResponse(params))
-    val e = Decoupled(new TLBundleE(params.inner.bundle)).flip
-  }
+    /** Wired from clients E channel. */
+    val e = Flipped(Decoupled(new TLBundleE(params.inner.bundle)))
+  })
 
+  /* Inclusive Cache is last level only. */
   if (params.firstLevel) {
-    // Tie off unused ports
-    io.resp.valid := Bool(false)
-    io.e.ready := Bool(true)
+    /* Tie off unused ports. */
+    io.resp.valid := false.B
+    io.e.ready := true.B
   } else {
-    // No restrictions on buffer
+    /** Based on parameter of micro architecture, construct a buffer of E. */
     val e = params.micro.innerBuf.e(io.e)
 
-    e.ready := Bool(true)
+    /** Always accept E from clients. */
+    e.ready := true.B
     io.resp.valid := e.valid
     io.resp.bits.sink := e.bits.sink
   }
