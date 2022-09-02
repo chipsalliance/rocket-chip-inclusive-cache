@@ -160,7 +160,7 @@ class BankedStore(params: InclusiveCacheParameters) extends Module
     req.bankSel | sum
   }
   // Access the banks
-  val regout = Vec(cc_banks.zipWithIndex.map { case ((b, omSRAM), i) =>
+  val regout = Vec(cc_banks.zipWithIndex.map { case (b, i) =>
     val en  = reqs.map(_.bankEn(i)).reduce(_||_)
     val sel = reqs.map(_.bankSel(i))
     val wen = PriorityMux(sel, reqs.map(_.wen))
@@ -187,6 +187,6 @@ class BankedStore(params: InclusiveCacheParameters) extends Module
 
   io.sourceD_rdat.data := Cat(decodeD.reverse)
 
-  private def banks = cc_banks.map("\"" + _._1.pathName + "\"").mkString(",")
+  private def banks = cc_banks.map("\"" + _.pathName + "\"").mkString(",")
   def json: String = s"""{"widthBytes":${params.micro.writeBytes},"mem":[${banks}]}"""
 }
