@@ -88,8 +88,6 @@ class WithInclusiveCache(
         address = InclusiveCacheParameters.L2ControlAddress,
         beatBytes = cbus.beatBytes))))
 
-    context.addLogicalTreeNode(l2.logicalTreeNode)
-
     def skipMMIO(x: TLClientParameters) = {
       val dcacheMMIO =
         x.requestFifo &&
