@@ -271,7 +271,7 @@ object MetaData
   def skipProbeN(opcode: UInt, hintsSkipProbe: Boolean): Bool = {
     // Acquire(toB) and Get => is N, so no probe
     // Acquire(*toT) => is N or B, but need T, so no probe
-    // Hint => could be anything, so probe IS needed
+    // Hint => could be anything, so probe IS needed, if hintsSkipProbe is enabled, skip probe the same client
     // Put* => is N or B, so probe IS needed
     opcode === TLMessages.AcquireBlock || opcode === TLMessages.AcquirePerm || opcode === TLMessages.Get || (opcode === TLMessages.Hint && hintsSkipProbe.B)
   }
