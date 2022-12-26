@@ -60,7 +60,7 @@ class ListBuffer[T <: Data](params: ListBufferParameters[T]) extends Module
   val push_tail = tail.read(io.push.bits.index)
   val push_valid = valid(io.push.bits.index)
 
-  io.push.ready := !used.andR()
+  io.push.ready := !used.andR
   when (io.push.fire()) {
     valid_set := UIntToOH(io.push.bits.index, params.queues)
     used_set := freeOH

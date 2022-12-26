@@ -46,7 +46,7 @@ class SourceB(params: InclusiveCacheParameters) extends Module
     val remain_clr = Wire(init = UInt(0, width=params.clientBits))
     remain := (remain | remain_set) & ~remain_clr
 
-    val busy = remain.orR()
+    val busy = remain.orR
     val todo = Mux(busy, remain, io.req.bits.clients)
     val next = ~(leftOR(todo) << 1) & todo
 

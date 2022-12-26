@@ -128,7 +128,7 @@ class Directory(params: InclusiveCacheParameters) extends Module
   val hits = Cat(ways.zipWithIndex.map { case (w, i) =>
     w.tag === tag && w.state =/= INVALID && (!setQuash || UInt(i) =/= bypass.way)
   }.reverse)
-  val hit = hits.orR()
+  val hit = hits.orR
 
   io.result.valid := ren2
   io.result.bits := Mux(hit, Mux1H(hits, ways), Mux(setQuash && (tagMatch || wayMatch), bypass.data, Mux1H(victimWayOH, ways)))
