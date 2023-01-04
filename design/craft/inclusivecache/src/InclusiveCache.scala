@@ -105,7 +105,8 @@ class InclusiveCache(
     concurrency = 1, // Only one flush at a time (else need to track who answers)
     beatBytes   = c.beatBytes)}
 
-  lazy val module = new LazyModuleImp(this) {
+  lazy val module = new Impl
+  class Impl extends LazyModuleImp(this) {
 
     // If you have a control port, you must have at least one cache port
     require (!ctlnode.isDefined || !node.edges.in.isEmpty)
