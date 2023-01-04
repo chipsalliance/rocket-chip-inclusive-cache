@@ -123,7 +123,7 @@ class Scheduler(params: InclusiveCacheParameters) extends Module
   val scheduleSet = Mux1H(mshr_selectOH, mshrs.map(_.io.status.bits.set))
 
   // When an MSHR wins the schedule, it has lowest priority next time
-  when (mshr_request.orR()) { robin_filter := ~rightOR(mshr_selectOH) }
+  when (mshr_request.orR) { robin_filter := ~rightOR(mshr_selectOH) }
 
   // Fill in which MSHR sends the request
   schedule.a.bits.source := mshr_select
@@ -159,7 +159,7 @@ class Scheduler(params: InclusiveCacheParameters) extends Module
 
   // If no MSHR has been assigned to this set, we need to allocate one
   val setMatches = Cat(mshrs.map { m => m.io.status.valid && m.io.status.bits.set === request.bits.set }.reverse)
-  val alloc = !setMatches.orR() // NOTE: no matches also means no BC or C pre-emption on this set
+  val alloc = !setMatches.orR // NOTE: no matches also means no BC or C pre-emption on this set
   // If a same-set MSHR says that requests of this type must be blocked (for bounded time), do it
   val blockB = Mux1H(setMatches, mshrs.map(_.io.status.bits.blockB)) && request.bits.prio(1)
   val blockC = Mux1H(setMatches, mshrs.map(_.io.status.bits.blockC)) && request.bits.prio(2)
@@ -171,7 +171,7 @@ class Scheduler(params: InclusiveCacheParameters) extends Module
   val prioFilter = Cat(request.bits.prio(2), !request.bits.prio(0), ~UInt(0, width = params.mshrs-2))
   val lowerMatches = setMatches & prioFilter
   // If we match an MSHR <= our priority that neither blocks nor nests us, queue to it.
-  val queue = lowerMatches.orR() && !nestB && !nestC && !blockB && !blockC
+  val queue = lowerMatches.orR && !nestB && !nestC && !blockB && !blockC
 
   if (!params.lastLevel) {
     params.ccover(request.valid && blockB, "SCHEDULER_BLOCKB", "Interlock B request while resolving set conflict")
@@ -193,10 +193,10 @@ class Scheduler(params: InclusiveCacheParameters) extends Module
   // If this goes to the scheduled MSHR, it may need to be bypassed
   // Alternatively, the MSHR may be refilled from a request queued in the ListBuffer
   val selected_requests = Cat(mshr_selectOH, mshr_selectOH, mshr_selectOH) & requests.io.valid
-  val a_pop = selected_requests((0 + 1) * params.mshrs - 1, 0 * params.mshrs).orR()
-  val b_pop = selected_requests((1 + 1) * params.mshrs - 1, 1 * params.mshrs).orR()
-  val c_pop = selected_requests((2 + 1) * params.mshrs - 1, 2 * params.mshrs).orR()
-  val bypassMatches = (mshr_selectOH & lowerMatches1).orR() &&
+  val a_pop = selected_requests((0 + 1) * params.mshrs - 1, 0 * params.mshrs).orR
+  val b_pop = selected_requests((1 + 1) * params.mshrs - 1, 1 * params.mshrs).orR
+  val c_pop = selected_requests((2 + 1) * params.mshrs - 1, 2 * params.mshrs).orR
+  val bypassMatches = (mshr_selectOH & lowerMatches1).orR &&
                       Mux(c_pop || request.bits.prio(2), !c_pop, Mux(b_pop || request.bits.prio(1), !b_pop, !a_pop))
   val may_pop = a_pop || b_pop || c_pop
   val bypass = request.valid && queue && bypassMatches
@@ -239,7 +239,7 @@ class Scheduler(params: InclusiveCacheParameters) extends Module
 
   // Is there an MSHR free for this request?
   val mshr_validOH = Cat(mshrs.map(_.io.status.valid).reverse)
-  val mshr_free = (~mshr_validOH & prioFilter).orR()
+  val mshr_free = (~mshr_validOH & prioFilter).orR
 
   // Fanout the request to the appropriate handler (if any)
   val bypassQueue = schedule.reload && bypassMatches

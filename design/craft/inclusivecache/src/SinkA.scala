@@ -54,7 +54,7 @@ class SinkA(params: InclusiveCacheParameters) extends Module
   val lists_clr = Wire(init = UInt(0, width = params.putLists))
   lists := (lists | lists_set) & ~lists_clr
 
-  val free = !lists.andR()
+  val free = !lists.andR
   val freeOH = ~(leftOR(~lists) << 1) & ~lists
   val freeIdx = OHToUInt(freeOH)
 
