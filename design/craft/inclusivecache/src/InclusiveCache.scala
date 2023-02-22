@@ -19,7 +19,7 @@ package sifive.blocks.inclusivecache
 
 import Chisel._
 
-import freechips.rocketchip.config._
+import org.chipsalliance.cde.config._
 import freechips.rocketchip.diplomacy._
 
 
