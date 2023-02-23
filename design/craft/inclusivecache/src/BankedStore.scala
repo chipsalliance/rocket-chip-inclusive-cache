@@ -17,7 +17,8 @@
 
 package sifive.blocks.inclusivecache
 
-import Chisel._
+import chisel3._
+import chisel3.util._
 import org.chipsalliance.cde.config._
 import freechips.rocketchip.diplomacy._
 import freechips.rocketchip.tilelink._
@@ -28,10 +29,10 @@ import scala.math.{max, min}
 abstract class BankedStoreAddress(val inner: Boolean, params: InclusiveCacheParameters) extends InclusiveCacheBundle(params)
 {
   val noop = Bool() // do not actually use the SRAMs, just block their use
-  val way  = UInt(width = params.wayBits)
-  val set  = UInt(width = params.setBits)
-  val beat = UInt(width = if (inner) params.innerBeatBits else params.outerBeatBits)
-  val mask = UInt(width = if (inner) params.innerMaskBits else params.outerMaskBits)
+  val way  = UInt(params.wayBits.W)
+  val set  = UInt(params.setBits.W)
+  val beat = UInt((if (inner) params.innerBeatBits else params.outerBeatBits).W)
+  val mask = UInt((if (inner) params.innerMaskBits else params.outerMaskBits).W)
 }
 
 trait BankedStoreRW
@@ -45,7 +46,7 @@ class BankedStoreInnerAddressRW(params: InclusiveCacheParameters) extends Banked
 
 abstract class BankedStoreData(val inner: Boolean, params: InclusiveCacheParameters) extends InclusiveCacheBundle(params)
 {
-  val data = UInt(width = (if (inner) params.inner.manager.beatBytes else params.outer.manager.beatBytes)*8)
+  val data = UInt(((if (inner) params.inner.manager.beatBytes else params.outer.manager.beatBytes)*8).W)
 }
 
 class BankedStoreOuterData(params: InclusiveCacheParameters) extends BankedStoreData(false, params)
@@ -58,16 +59,16 @@ class BankedStoreOuterDecoded(params: InclusiveCacheParameters) extends BankedSt
 class BankedStore(params: InclusiveCacheParameters) extends Module
 {
   val io = new Bundle {
-    val sinkC_adr = Decoupled(new BankedStoreInnerAddress(params)).flip
-    val sinkC_dat = new BankedStoreInnerPoison(params).flip
-    val sinkD_adr = Decoupled(new BankedStoreOuterAddress(params)).flip
-    val sinkD_dat = new BankedStoreOuterPoison(params).flip
-    val sourceC_adr = Decoupled(new BankedStoreOuterAddress(params)).flip
+    val sinkC_adr = Flipped(Decoupled(new BankedStoreInnerAddress(params)))
+    val sinkC_dat = Flipped(new BankedStoreInnerPoison(params))
+    val sinkD_adr = Flipped(Decoupled(new BankedStoreOuterAddress(params)))
+    val sinkD_dat = Flipped(new BankedStoreOuterPoison(params))
+    val sourceC_adr = Flipped(Decoupled(new BankedStoreOuterAddress(params)))
     val sourceC_dat = new BankedStoreOuterDecoded(params)
-    val sourceD_radr = Decoupled(new BankedStoreInnerAddress(params)).flip
+    val sourceD_radr = Flipped(Decoupled(new BankedStoreInnerAddress(params)))
     val sourceD_rdat = new BankedStoreInnerDecoded(params)
-    val sourceD_wadr = Decoupled(new BankedStoreInnerAddress(params)).flip
-    val sourceD_wdat = new BankedStoreInnerPoison(params).flip
+    val sourceD_wadr = Flipped(Decoupled(new BankedStoreInnerAddress(params)))
+    val sourceD_wdat = Flipped(new BankedStoreInnerPoison(params))
   }
 
   val innerBytes = params.inner.manager.beatBytes
@@ -85,7 +86,7 @@ class BankedStore(params: InclusiveCacheParameters) extends Module
         name = s"cc_banks_$i",
         desc = "Banked Store",
         size = rowEntries,
-        data = UInt(width = codeBits)
+        data = UInt(codeBits.W)
       )
   }
   // These constraints apply on the port priorities:
@@ -107,11 +108,11 @@ class BankedStore(params: InclusiveCacheParameters) extends Module
 
   class Request extends Bundle {
     val wen      = Bool()
-    val index    = UInt(width = rowBits)
-    val bankSel  = UInt(width = numBanks)
-    val bankSum  = UInt(width = numBanks) // OR of all higher priority bankSels
-    val bankEn   = UInt(width = numBanks) // ports actually activated by request
-    val data     = Vec(numBanks, UInt(width = codeBits))
+    val index    = UInt(rowBits.W)
+    val bankSel  = UInt(numBanks.W)
+    val bankSum  = UInt(numBanks.W) // OR of all higher priority bankSels
+    val bankEn   = UInt(numBanks.W) // ports actually activated by request
+    val data     = Vec(numBanks, UInt(codeBits.W))
   }
 
   def req[T <: BankedStoreAddress](b: DecoupledIO[T], write: Bool, d: UInt): Request = {
@@ -132,17 +133,17 @@ class BankedStore(params: InclusiveCacheParameters) extends Module
 
     out.wen      := write
     out.index    := a >> bankBits
-    out.bankSel  := Mux(b.valid, FillInterleaved(ports, select) & Fill(numBanks/ports, m), UInt(0))
-    out.bankEn   := Mux(b.bits.noop, UInt(0), out.bankSel & FillInterleaved(ports, ready))
-    out.data     := Vec(Seq.fill(numBanks/ports) { words }.flatten)
+    out.bankSel  := Mux(b.valid, FillInterleaved(ports, select) & Fill(numBanks/ports, m), 0.U)
+    out.bankEn   := Mux(b.bits.noop, 0.U, out.bankSel & FillInterleaved(ports, ready))
+    out.data     := Seq.fill(numBanks/ports) { words }.flatten
 
     out
   }
 
-  val innerData = UInt(0, width = innerBytes*8)
-  val outerData = UInt(0, width = outerBytes*8)
-  val W = Bool(true)
-  val R = Bool(false)
+  val innerData = 0.U((8*innerBytes).W)
+  val outerData = 0.U((8*outerBytes).W)
+  val W = true.B
+  val R = false.B
 
   val sinkC_req    = req(io.sinkC_adr,    W, io.sinkC_dat.data)
   val sinkD_req    = req(io.sinkD_adr,    W, io.sinkD_dat.data)
@@ -155,12 +156,12 @@ class BankedStore(params: InclusiveCacheParameters) extends Module
 
   // Connect priorities; note that even if a request does not go through due to failing
   // to obtain a needed subbank, it still blocks overlapping lower priority requests.
-  reqs.foldLeft(UInt(0)) { case (sum, req) =>
+  reqs.foldLeft(0.U) { case (sum, req) =>
     req.bankSum := sum
     req.bankSel | sum
   }
   // Access the banks
-  val regout = Vec(cc_banks.zipWithIndex.map { case (b, i) =>
+  val regout = VecInit(cc_banks.zipWithIndex.map { case (b, i) =>
     val en  = reqs.map(_.bankEn(i)).reduce(_||_)
     val sel = reqs.map(_.bankSel(i))
     val wen = PriorityMux(sel, reqs.map(_.wen))
@@ -175,14 +176,14 @@ class BankedStore(params: InclusiveCacheParameters) extends Module
   val regsel_sourceD = RegNext(RegNext(sourceD_rreq.bankEn))
 
   val decodeC = regout.zipWithIndex.map {
-    case (r, i) => Mux(regsel_sourceC(i), r, UInt(0))
+    case (r, i) => Mux(regsel_sourceC(i), r, 0.U)
   }.grouped(outerBytes/params.micro.writeBytes).toList.transpose.map(s => s.reduce(_|_))
 
   io.sourceC_dat.data := Cat(decodeC.reverse)
 
   val decodeD = regout.zipWithIndex.map {
     // Intentionally not Mux1H and/or an indexed-mux b/c we want it 0 when !sel to save decode power
-    case (r, i) => Mux(regsel_sourceD(i), r, UInt(0))
+    case (r, i) => Mux(regsel_sourceD(i), r, 0.U)
   }.grouped(innerBytes/params.micro.writeBytes).toList.transpose.map(s => s.reduce(_|_))
 
   io.sourceD_rdat.data := Cat(decodeD.reverse)
