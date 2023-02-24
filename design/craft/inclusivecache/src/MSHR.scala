@@ -17,8 +17,9 @@
 
 package sifive.blocks.inclusivecache
 
-import Chisel._
-import chisel3.internal.sourceinfo.SourceInfo
+import chisel3._
+import chisel3.util._
+import chisel3.experimental.SourceInfo
 import freechips.rocketchip.tilelink._
 import TLPermissions._
 import TLMessages._
@@ -39,9 +40,9 @@ class ScheduleRequest(params: InclusiveCacheParameters) extends InclusiveCacheBu
 
 class MSHRStatus(params: InclusiveCacheParameters) extends InclusiveCacheBundle(params)
 {
-  val set = UInt(width = params.setBits)
-  val tag = UInt(width = params.tagBits)
-  val way = UInt(width = params.wayBits)
+  val set = UInt(params.setBits.W)
+  val tag = UInt(params.tagBits.W)
+  val way = UInt(params.wayBits.W)
   val blockB = Bool()
   val nestB  = Bool()
   val blockC = Bool()
@@ -50,8 +51,8 @@ class MSHRStatus(params: InclusiveCacheParameters) extends InclusiveCacheBundle(
 
 class NestedWriteback(params: InclusiveCacheParameters) extends InclusiveCacheBundle(params)
 {
-  val set = UInt(width = params.setBits)
-  val tag = UInt(width = params.tagBits)
+  val set = UInt(params.setBits.W)
+  val tag = UInt(params.tagBits.W)
   val b_toN       = Bool() // nested Probes may unhit us
   val b_toB       = Bool() // nested Probes may demote us
   val b_clr_dirty = Bool() // nested Probes clear dirty
@@ -60,7 +61,7 @@ class NestedWriteback(params: InclusiveCacheParameters) extends InclusiveCacheBu
 
 sealed trait CacheState
 {
-  val code = UInt(CacheState.index)
+  val code = CacheState.index.U
   CacheState.index = CacheState.index + 1
 }
 
@@ -82,19 +83,19 @@ case object S_TRUNK_CD extends CacheState
 class MSHR(params: InclusiveCacheParameters) extends Module
 {
   val io = new Bundle {
-    val allocate  = Valid(new AllocateRequest(params)).flip // refills MSHR for next cycle
-    val directory = Valid(new DirectoryResult(params)).flip // triggers schedule setup
+    val allocate  = Flipped(Valid(new AllocateRequest(params))) // refills MSHR for next cycle
+    val directory = Flipped(Valid(new DirectoryResult(params))) // triggers schedule setup
     val status    = Valid(new MSHRStatus(params))
     val schedule  = Decoupled(new ScheduleRequest(params))
-    val sinkc     = Valid(new SinkCResponse(params)).flip
-    val sinkd     = Valid(new SinkDResponse(params)).flip
-    val sinke     = Valid(new SinkEResponse(params)).flip
-    val nestedwb  = new NestedWriteback(params).flip
+    val sinkc     = Flipped(Valid(new SinkCResponse(params)))
+    val sinkd     = Flipped(Valid(new SinkDResponse(params)))
+    val sinke     = Flipped(Valid(new SinkEResponse(params)))
+    val nestedwb  = Flipped(new NestedWriteback(params))
   }
 
-  val request_valid = RegInit(Bool(false))
+  val request_valid = RegInit(false.B)
   val request = Reg(new FullRequest(params))
-  val meta_valid = RegInit(Bool(false))
+  val meta_valid = RegInit(false.B)
   val meta = Reg(new DirectoryResult(params))
 
   // Define which states are valid
@@ -108,7 +109,7 @@ class MSHR(params: InclusiveCacheParameters) extends Module
     }
     when (meta.state === TRUNK) {
       assert (meta.clients.orR)
-      assert ((meta.clients & (meta.clients - UInt(1))) === UInt(0)) // at most one
+      assert ((meta.clients & (meta.clients - 1.U)) === 0.U) // at most one
     }
     when (meta.state === TIP) {
       // noop
@@ -116,25 +117,25 @@ class MSHR(params: InclusiveCacheParameters) extends Module
   }
 
   // Completed transitions (s_ = scheduled), (w_ = waiting)
-  val s_rprobe         = RegInit(Bool(true)) // B
-  val w_rprobeackfirst = RegInit(Bool(true))
-  val w_rprobeacklast  = RegInit(Bool(true))
-  val s_release        = RegInit(Bool(true)) // CW w_rprobeackfirst
-  val w_releaseack     = RegInit(Bool(true))
-  val s_pprobe         = RegInit(Bool(true)) // B
-  val s_acquire        = RegInit(Bool(true)) // A  s_release, s_pprobe [1]
-  val s_flush          = RegInit(Bool(true)) // X  w_releaseack
-  val w_grantfirst     = RegInit(Bool(true))
-  val w_grantlast      = RegInit(Bool(true))
-  val w_grant          = RegInit(Bool(true)) // first | last depending on wormhole
-  val w_pprobeackfirst = RegInit(Bool(true))
-  val w_pprobeacklast  = RegInit(Bool(true))
-  val w_pprobeack      = RegInit(Bool(true)) // first | last depending on wormhole
-  val s_probeack       = RegInit(Bool(true)) // C  w_pprobeackfirst (mutually exclusive with next two s_*)
-  val s_grantack       = RegInit(Bool(true)) // E  w_grantfirst ... CAN require both outE&inD to service outD
-  val s_execute        = RegInit(Bool(true)) // D  w_pprobeack, w_grant
-  val w_grantack       = RegInit(Bool(true))
-  val s_writeback      = RegInit(Bool(true)) // W  w_*
+  val s_rprobe         = RegInit(true.B) // B
+  val w_rprobeackfirst = RegInit(true.B)
+  val w_rprobeacklast  = RegInit(true.B)
+  val s_release        = RegInit(true.B) // CW w_rprobeackfirst
+  val w_releaseack     = RegInit(true.B)
+  val s_pprobe         = RegInit(true.B) // B
+  val s_acquire        = RegInit(true.B) // A  s_release, s_pprobe [1]
+  val s_flush          = RegInit(true.B) // X  w_releaseack
+  val w_grantfirst     = RegInit(true.B)
+  val w_grantlast      = RegInit(true.B)
+  val w_grant          = RegInit(true.B) // first | last depending on wormhole
+  val w_pprobeackfirst = RegInit(true.B)
+  val w_pprobeacklast  = RegInit(true.B)
+  val w_pprobeack      = RegInit(true.B) // first | last depending on wormhole
+  val s_probeack       = RegInit(true.B) // C  w_pprobeackfirst (mutually exclusive with next two s_*)
+  val s_grantack       = RegInit(true.B) // E  w_grantfirst ... CAN require both outE&inD to service outD
+  val s_execute        = RegInit(true.B) // D  w_pprobeack, w_grant
+  val w_grantack       = RegInit(true.B)
+  val s_writeback      = RegInit(true.B) // W  w_*
 
   // [1]: We cannot issue outer Acquire while holding blockB (=> outA can stall)
   // However, inB and outC are higher priority than outB, so s_release and s_pprobe
@@ -142,20 +143,20 @@ class MSHR(params: InclusiveCacheParameters) extends Module
   // potentially stuck s_acquire with either of them (scheduler is all or none).
 
   // Meta-data that we discover underway
-  val sink = Reg(UInt(width = params.outer.bundle.sinkBits))
+  val sink = Reg(UInt(params.outer.bundle.sinkBits.W))
   val gotT = Reg(Bool())
   val bad_grant = Reg(Bool())
-  val probes_done = Reg(UInt(width = params.clientBits))
-  val probes_toN = Reg(UInt(width = params.clientBits))
+  val probes_done = Reg(UInt(params.clientBits.W))
+  val probes_toN = Reg(UInt(params.clientBits.W))
   val probes_noT = Reg(Bool())
 
   // When a nested transaction completes, update our meta data
   when (meta_valid && meta.state =/= INVALID &&
         io.nestedwb.set === request.set && io.nestedwb.tag === meta.tag) {
-    when (io.nestedwb.b_clr_dirty) { meta.dirty := Bool(false) }
-    when (io.nestedwb.c_set_dirty) { meta.dirty := Bool(true) }
+    when (io.nestedwb.b_clr_dirty) { meta.dirty := false.B }
+    when (io.nestedwb.c_set_dirty) { meta.dirty := true.B }
     when (io.nestedwb.b_toB) { meta.state := BRANCH }
-    when (io.nestedwb.b_toN) { meta.hit := Bool(false) }
+    when (io.nestedwb.b_toN) { meta.hit := false.B }
   }
 
   // Scheduler status
@@ -193,24 +194,24 @@ class MSHR(params: InclusiveCacheParameters) extends Module
 
   // Schedule completions
   when (io.schedule.ready) {
-                                    s_rprobe     := Bool(true)
-    when (w_rprobeackfirst)       { s_release    := Bool(true) }
-                                    s_pprobe     := Bool(true)
-    when (s_release && s_pprobe)  { s_acquire    := Bool(true) }
-    when (w_releaseack)           { s_flush      := Bool(true) }
-    when (w_pprobeackfirst)       { s_probeack   := Bool(true) }
-    when (w_grantfirst)           { s_grantack   := Bool(true) }
-    when (w_pprobeack && w_grant) { s_execute    := Bool(true) }
-    when (no_wait)                { s_writeback  := Bool(true) }
+                                    s_rprobe     := true.B
+    when (w_rprobeackfirst)       { s_release    := true.B }
+                                    s_pprobe     := true.B
+    when (s_release && s_pprobe)  { s_acquire    := true.B }
+    when (w_releaseack)           { s_flush      := true.B }
+    when (w_pprobeackfirst)       { s_probeack   := true.B }
+    when (w_grantfirst)           { s_grantack   := true.B }
+    when (w_pprobeack && w_grant) { s_execute    := true.B }
+    when (no_wait)                { s_writeback  := true.B }
     // Await the next operation
     when (no_wait) {
-      request_valid := Bool(false)
-      meta_valid := Bool(false)
+      request_valid := false.B
+      meta_valid := false.B
     }
   }
 
   // Resulting meta-data
-  val final_meta_writeback = Wire(init = meta)
+  val final_meta_writeback = WireInit(meta)
 
   val req_clientBit = params.clientBit(request.source)
   val req_needT = needT(request.opcode, request.param)
@@ -218,76 +219,76 @@ class MSHR(params: InclusiveCacheParameters) extends Module
   val meta_no_clients = !meta.clients.orR
   val req_promoteT = req_acquire && Mux(meta.hit, meta_no_clients && meta.state === TIP, gotT)
 
-  when (request.prio(2) && Bool(!params.firstLevel)) { // always a hit
+  when (request.prio(2) && (!params.firstLevel).B) { // always a hit
     final_meta_writeback.dirty   := meta.dirty || request.opcode(0)
     final_meta_writeback.state   := Mux(request.param =/= TtoT && meta.state === TRUNK, TIP, meta.state)
-    final_meta_writeback.clients := meta.clients & ~Mux(isToN(request.param), req_clientBit, UInt(0))
-    final_meta_writeback.hit     := Bool(true) // chained requests are hits
-  } .elsewhen (request.control && Bool(params.control)) { // request.prio(0)
+    final_meta_writeback.clients := meta.clients & ~Mux(isToN(request.param), req_clientBit, 0.U)
+    final_meta_writeback.hit     := true.B // chained requests are hits
+  } .elsewhen (request.control && params.control.B) { // request.prio(0)
     when (meta.hit) {
-      final_meta_writeback.dirty   := Bool(false)
+      final_meta_writeback.dirty   := false.B
       final_meta_writeback.state   := INVALID
       final_meta_writeback.clients := meta.clients & ~probes_toN
     }
-    final_meta_writeback.hit := Bool(false)
+    final_meta_writeback.hit := false.B
   } .otherwise {
     final_meta_writeback.dirty := (meta.hit && meta.dirty) || !request.opcode(2)
     final_meta_writeback.state := Mux(req_needT,
                                     Mux(req_acquire, TRUNK, TIP),
                                     Mux(!meta.hit, Mux(gotT, Mux(req_acquire, TRUNK, TIP), BRANCH),
-                                      MuxLookup(meta.state, UInt(0, width=2), Seq(
+                                      MuxLookup(meta.state, 0.U(2.W), Seq(
                                         INVALID -> BRANCH,
                                         BRANCH  -> BRANCH,
                                         TRUNK   -> TIP,
                                         TIP     -> Mux(meta_no_clients && req_acquire, TRUNK, TIP)))))
-    final_meta_writeback.clients := Mux(meta.hit, meta.clients & ~probes_toN, UInt(0)) |
-                                    Mux(req_acquire, req_clientBit, UInt(0))
+    final_meta_writeback.clients := Mux(meta.hit, meta.clients & ~probes_toN, 0.U) |
+                                    Mux(req_acquire, req_clientBit, 0.U)
     final_meta_writeback.tag := request.tag
-    final_meta_writeback.hit := Bool(true)
+    final_meta_writeback.hit := true.B
   }
 
   when (bad_grant) {
     when (meta.hit) {
       // upgrade failed (B -> T)
       assert (!meta_valid || meta.state === BRANCH)
-      final_meta_writeback.hit     := Bool(true)
-      final_meta_writeback.dirty   := Bool(false)
+      final_meta_writeback.hit     := true.B
+      final_meta_writeback.dirty   := false.B
       final_meta_writeback.state   := BRANCH
       final_meta_writeback.clients := meta.clients & ~probes_toN
     } .otherwise {
       // failed N -> (T or B)
-      final_meta_writeback.hit     := Bool(false)
-      final_meta_writeback.dirty   := Bool(false)
+      final_meta_writeback.hit     := false.B
+      final_meta_writeback.dirty   := false.B
       final_meta_writeback.state   := INVALID
-      final_meta_writeback.clients := UInt(0)
+      final_meta_writeback.clients := 0.U
     }
   }
 
   val invalid = Wire(new DirectoryEntry(params))
-  invalid.dirty   := Bool(false)
+  invalid.dirty   := false.B
   invalid.state   := INVALID
-  invalid.clients := UInt(0)
-  invalid.tag     := UInt(0)
+  invalid.clients := 0.U
+  invalid.tag     := 0.U
 
   // Just because a client says BtoT, by the time we process the request he may be N.
   // Therefore, we must consult our own meta-data state to confirm he owns the line still.
   val honour_BtoT = meta.hit && (meta.clients & req_clientBit).orR
 
   // The client asking us to act is proof they don't have permissions.
-  val excluded_client = Mux(meta.hit && request.prio(0) && skipProbeN(request.opcode, params.cache.hintsSkipProbe), req_clientBit, UInt(0))
+  val excluded_client = Mux(meta.hit && request.prio(0) && skipProbeN(request.opcode, params.cache.hintsSkipProbe), req_clientBit, 0.U)
   io.schedule.bits.a.bits.tag     := request.tag
   io.schedule.bits.a.bits.set     := request.set
   io.schedule.bits.a.bits.param   := Mux(req_needT, Mux(meta.hit, BtoT, NtoT), NtoB)
-  io.schedule.bits.a.bits.block   := request.size =/= UInt(log2Ceil(params.cache.blockBytes)) ||
+  io.schedule.bits.a.bits.block   := request.size =/= log2Ceil(params.cache.blockBytes).U ||
                                      !(request.opcode === PutFullData || request.opcode === AcquirePerm)
-  io.schedule.bits.a.bits.source  := UInt(0)
+  io.schedule.bits.a.bits.source  := 0.U
   io.schedule.bits.b.bits.param   := Mux(!s_rprobe, toN, Mux(request.prio(1), request.param, Mux(req_needT, toN, toB)))
   io.schedule.bits.b.bits.tag     := Mux(!s_rprobe, meta.tag, request.tag)
   io.schedule.bits.b.bits.set     := request.set
   io.schedule.bits.b.bits.clients := meta.clients & ~excluded_client
   io.schedule.bits.c.bits.opcode  := Mux(meta.dirty, ReleaseData, Release)
   io.schedule.bits.c.bits.param   := Mux(meta.state === BRANCH, BtoN, TtoN)
-  io.schedule.bits.c.bits.source  := UInt(0)
+  io.schedule.bits.c.bits.source  := 0.U
   io.schedule.bits.c.bits.tag     := meta.tag
   io.schedule.bits.c.bits.set     := request.set
   io.schedule.bits.c.bits.way     := meta.way
@@ -298,14 +299,14 @@ class MSHR(params: InclusiveCacheParameters) extends Module
                                          NtoB -> Mux(req_promoteT, NtoT, NtoB),
                                          BtoT -> Mux(honour_BtoT,  BtoT, NtoT),
                                          NtoT -> NtoT)))
-  io.schedule.bits.d.bits.sink    := UInt(0)
+  io.schedule.bits.d.bits.sink    := 0.U
   io.schedule.bits.d.bits.way     := meta.way
   io.schedule.bits.d.bits.bad     := bad_grant
   io.schedule.bits.e.bits.sink    := sink
-  io.schedule.bits.x.bits.fail    := Bool(false)
+  io.schedule.bits.x.bits.fail    := false.B
   io.schedule.bits.dir.bits.set   := request.set
   io.schedule.bits.dir.bits.way   := meta.way
-  io.schedule.bits.dir.bits.data  := Mux(!s_release, invalid, Wire(new DirectoryEntry(params), init = final_meta_writeback))
+  io.schedule.bits.dir.bits.data  := Mux(!s_release, invalid, WireInit(new DirectoryEntry(params), init = final_meta_writeback))
 
   // Coverage of state transitions
   def cacheState(entry: DirectoryEntry, hit: Bool) = {
@@ -335,7 +336,7 @@ class MSHR(params: InclusiveCacheParameters) extends Module
 
   val evict = cacheState(meta, !meta.hit)
   val before = cacheState(meta, meta.hit)
-  val after  = cacheState(final_meta_writeback, Bool(true))
+  val after  = cacheState(final_meta_writeback, true.B)
 
   def eviction(from: CacheState, cover: Boolean)(implicit sourceInfo: SourceInfo) {
     if (cover) {
@@ -463,50 +464,50 @@ class MSHR(params: InclusiveCacheParameters) extends Module
     // We would never allow an outer probe to nest until both w_[rp]probeack complete, so
     // it is safe to just unguardedly update the probe FSM.
     probes_done := probes_done | probe_bit
-    probes_toN := probes_toN | Mux(probe_toN, probe_bit, UInt(0))
+    probes_toN := probes_toN | Mux(probe_toN, probe_bit, 0.U)
     probes_noT := probes_noT || io.sinkc.bits.param =/= TtoT
     w_rprobeackfirst := w_rprobeackfirst || last_probe
     w_rprobeacklast := w_rprobeacklast || (last_probe && io.sinkc.bits.last)
     w_pprobeackfirst := w_pprobeackfirst || last_probe
     w_pprobeacklast := w_pprobeacklast || (last_probe && io.sinkc.bits.last)
     // Allow wormhole routing from sinkC if the first request beat has offset 0
-    val set_pprobeack = last_probe && (io.sinkc.bits.last || request.offset === UInt(0))
+    val set_pprobeack = last_probe && (io.sinkc.bits.last || request.offset === 0.U)
     w_pprobeack := w_pprobeack || set_pprobeack
     params.ccover(!set_pprobeack && w_rprobeackfirst, "MSHR_PROBE_SERIAL", "Sequential routing of probe response data")
     params.ccover( set_pprobeack && w_rprobeackfirst, "MSHR_PROBE_WORMHOLE", "Wormhole routing of probe response data")
     // However, meta-data updates need to be done more cautiously
-    when (meta.state =/= INVALID && io.sinkc.bits.tag === meta.tag && io.sinkc.bits.data) { meta.dirty := Bool(true) } // !!!
+    when (meta.state =/= INVALID && io.sinkc.bits.tag === meta.tag && io.sinkc.bits.data) { meta.dirty := true.B } // !!!
   }
   when (io.sinkd.valid) {
     when (io.sinkd.bits.opcode === Grant || io.sinkd.bits.opcode === GrantData) {
       sink := io.sinkd.bits.sink
-      w_grantfirst := Bool(true)
+      w_grantfirst := true.B
       w_grantlast := io.sinkd.bits.last
       // Record if we need to prevent taking ownership
       bad_grant := io.sinkd.bits.denied
       // Allow wormhole routing for requests whose first beat has offset 0
-      w_grant := request.offset === UInt(0) || io.sinkd.bits.last
-      params.ccover(io.sinkd.bits.opcode === GrantData && request.offset === UInt(0), "MSHR_GRANT_WORMHOLE", "Wormhole routing of grant response data")
-      params.ccover(io.sinkd.bits.opcode === GrantData && request.offset =/= UInt(0), "MSHR_GRANT_SERIAL", "Sequential routing of grant response data")
+      w_grant := request.offset === 0.U || io.sinkd.bits.last
+      params.ccover(io.sinkd.bits.opcode === GrantData && request.offset === 0.U, "MSHR_GRANT_WORMHOLE", "Wormhole routing of grant response data")
+      params.ccover(io.sinkd.bits.opcode === GrantData && request.offset =/= 0.U, "MSHR_GRANT_SERIAL", "Sequential routing of grant response data")
       gotT := io.sinkd.bits.param === toT
     }
     .elsewhen (io.sinkd.bits.opcode === ReleaseAck) {
-      w_releaseack := Bool(true)
+      w_releaseack := true.B
     }
   }
   when (io.sinke.valid) {
-    w_grantack := Bool(true)
+    w_grantack := true.B
   }
 
   // Bootstrap new requests
-  val allocate_as_full = Wire(new FullRequest(params), init = io.allocate.bits)
+  val allocate_as_full = WireInit(new FullRequest(params), init = io.allocate.bits)
   val new_meta = Mux(io.allocate.valid && io.allocate.bits.repeat, final_meta_writeback, io.directory.bits)
   val new_request = Mux(io.allocate.valid, allocate_as_full, request)
   val new_needT = needT(new_request.opcode, new_request.param)
   val new_clientBit = params.clientBit(new_request.source)
-  val new_skipProbe = Mux(skipProbeN(new_request.opcode, params.cache.hintsSkipProbe), new_clientBit, UInt(0))
+  val new_skipProbe = Mux(skipProbeN(new_request.opcode, params.cache.hintsSkipProbe), new_clientBit, 0.U)
 
-  val prior = cacheState(final_meta_writeback, Bool(true))
+  val prior = cacheState(final_meta_writeback, true.B)
   def bypass(from: CacheState, cover: Boolean)(implicit sourceInfo: SourceInfo) {
     if (cover) {
       params.ccover(prior === from.code, s"MSHR_${from}_BYPASS", s"State bypass transition from ${from} ${cfg}")
@@ -529,115 +530,115 @@ class MSHR(params: InclusiveCacheParameters) extends Module
 
   when (io.allocate.valid) {
     assert (!request_valid || (no_wait && io.schedule.fire()))
-    request_valid := Bool(true)
+    request_valid := true.B
     request := io.allocate.bits
   }
 
   // Create execution plan
   when (io.directory.valid || (io.allocate.valid && io.allocate.bits.repeat)) {
-    meta_valid := Bool(true)
+    meta_valid := true.B
     meta := new_meta
-    probes_done := UInt(0)
-    probes_toN := UInt(0)
-    probes_noT := Bool(false)
-    gotT := Bool(false)
-    bad_grant := Bool(false)
+    probes_done := 0.U
+    probes_toN := 0.U
+    probes_noT := false.B
+    gotT := false.B
+    bad_grant := false.B
 
     // These should already be either true or turning true
     // We clear them here explicitly to simplify the mux tree
-    s_rprobe         := Bool(true)
-    w_rprobeackfirst := Bool(true)
-    w_rprobeacklast  := Bool(true)
-    s_release        := Bool(true)
-    w_releaseack     := Bool(true)
-    s_pprobe         := Bool(true)
-    s_acquire        := Bool(true)
-    s_flush          := Bool(true)
-    w_grantfirst     := Bool(true)
-    w_grantlast      := Bool(true)
-    w_grant          := Bool(true)
-    w_pprobeackfirst := Bool(true)
-    w_pprobeacklast  := Bool(true)
-    w_pprobeack      := Bool(true)
-    s_probeack       := Bool(true)
-    s_grantack       := Bool(true)
-    s_execute        := Bool(true)
-    w_grantack       := Bool(true)
-    s_writeback      := Bool(true)
+    s_rprobe         := true.B
+    w_rprobeackfirst := true.B
+    w_rprobeacklast  := true.B
+    s_release        := true.B
+    w_releaseack     := true.B
+    s_pprobe         := true.B
+    s_acquire        := true.B
+    s_flush          := true.B
+    w_grantfirst     := true.B
+    w_grantlast      := true.B
+    w_grant          := true.B
+    w_pprobeackfirst := true.B
+    w_pprobeacklast  := true.B
+    w_pprobeack      := true.B
+    s_probeack       := true.B
+    s_grantack       := true.B
+    s_execute        := true.B
+    w_grantack       := true.B
+    s_writeback      := true.B
 
     // For C channel requests (ie: Release[Data])
-    when (new_request.prio(2) && Bool(!params.firstLevel)) {
-      s_execute := Bool(false)
+    when (new_request.prio(2) && (!params.firstLevel).B) {
+      s_execute := false.B
       // Do we need to go dirty?
       when (new_request.opcode(0) && !new_meta.dirty) {
-        s_writeback := Bool(false)
+        s_writeback := false.B
       }
       // Does our state change?
       when (isToB(new_request.param) && new_meta.state === TRUNK) {
-        s_writeback := Bool(false)
+        s_writeback := false.B
       }
       // Do our clients change?
-      when (isToN(new_request.param) && (new_meta.clients & new_clientBit) =/= UInt(0)) {
-        s_writeback := Bool(false)
+      when (isToN(new_request.param) && (new_meta.clients & new_clientBit) =/= 0.U) {
+        s_writeback := false.B
       }
       assert (new_meta.hit)
     }
     // For X channel requests (ie: flush)
-    .elsewhen (new_request.control && Bool(params.control)) { // new_request.prio(0)
-      s_flush := Bool(false)
+    .elsewhen (new_request.control && params.control.B) { // new_request.prio(0)
+      s_flush := false.B
       // Do we need to actually do something?
       when (new_meta.hit) {
-        s_release := Bool(false)
-        w_releaseack := Bool(false)
+        s_release := false.B
+        w_releaseack := false.B
         // Do we need to shoot-down inner caches?
-        when (Bool(!params.firstLevel) && (new_meta.clients =/= UInt(0))) {
-          s_rprobe := Bool(false)
-          w_rprobeackfirst := Bool(false)
-          w_rprobeacklast := Bool(false)
+        when ((!params.firstLevel).B && (new_meta.clients =/= 0.U)) {
+          s_rprobe := false.B
+          w_rprobeackfirst := false.B
+          w_rprobeacklast := false.B
         }
       }
     }
     // For A channel requests
     .otherwise { // new_request.prio(0) && !new_request.control
-      s_execute := Bool(false)
+      s_execute := false.B
       // Do we need an eviction?
       when (!new_meta.hit && new_meta.state =/= INVALID) {
-        s_release := Bool(false)
-        w_releaseack := Bool(false)
+        s_release := false.B
+        w_releaseack := false.B
         // Do we need to shoot-down inner caches?
-        when (Bool(!params.firstLevel) & (new_meta.clients =/= UInt(0))) {
-          s_rprobe := Bool(false)
-          w_rprobeackfirst := Bool(false)
-          w_rprobeacklast := Bool(false)
+        when ((!params.firstLevel).B & (new_meta.clients =/= 0.U)) {
+          s_rprobe := false.B
+          w_rprobeackfirst := false.B
+          w_rprobeacklast := false.B
         }
       }
       // Do we need an acquire?
       when (!new_meta.hit || (new_meta.state === BRANCH && new_needT)) {
-        s_acquire := Bool(false)
-        w_grantfirst := Bool(false)
-        w_grantlast := Bool(false)
-        w_grant := Bool(false)
-        s_grantack := Bool(false)
-        s_writeback := Bool(false)
+        s_acquire := false.B
+        w_grantfirst := false.B
+        w_grantlast := false.B
+        w_grant := false.B
+        s_grantack := false.B
+        s_writeback := false.B
       }
       // Do we need a probe?
-      when (Bool(!params.firstLevel) && (new_meta.hit &&
+      when ((!params.firstLevel).B && (new_meta.hit &&
             (new_needT || new_meta.state === TRUNK) &&
-            (new_meta.clients & ~new_skipProbe) =/= UInt(0))) {
-        s_pprobe := Bool(false)
-        w_pprobeackfirst := Bool(false)
-        w_pprobeacklast := Bool(false)
-        w_pprobeack := Bool(false)
-        s_writeback := Bool(false)
+            (new_meta.clients & ~new_skipProbe) =/= 0.U)) {
+        s_pprobe := false.B
+        w_pprobeackfirst := false.B
+        w_pprobeacklast := false.B
+        w_pprobeack := false.B
+        s_writeback := false.B
       }
       // Do we need a grantack?
       when (new_request.opcode === AcquireBlock || new_request.opcode === AcquirePerm) {
-        w_grantack := Bool(false)
-        s_writeback := Bool(false)
+        w_grantack := false.B
+        s_writeback := false.B
       }
       // Becomes dirty?
       when (!new_request.opcode(2) && new_meta.hit && !new_meta.dirty) {
-        s_writeback := Bool(false)
+        s_writeback := false.B
       }
     }
   }
