@@ -17,19 +17,19 @@
 
 package sifive.blocks.inclusivecache
 
-import Chisel._
-import freechips.rocketchip.tilelink._
+import chisel3._
+import chisel3.util._
 
 class SinkXRequest(params: InclusiveCacheParameters) extends InclusiveCacheBundle(params)
 {
-  val address = UInt(width = params.inner.bundle.addressBits)
+  val address = UInt(params.inner.bundle.addressBits.W)
 }
 
 class SinkX(params: InclusiveCacheParameters) extends Module
 {
   val io = new Bundle {
     val req = Decoupled(new FullRequest(params))
-    val x = Decoupled(new SinkXRequest(params)).flip
+    val x = Flipped(Decoupled(new SinkXRequest(params)))
   }
 
   val x = Queue(io.x, 1)
@@ -39,15 +39,15 @@ class SinkX(params: InclusiveCacheParameters) extends Module
   io.req.valid := x.valid
   params.ccover(x.valid && !x.ready, "SINKX_STALL", "Backpressure when accepting a control message")
 
-  io.req.bits.prio   := Vec(UInt(1, width=3).asBools) // same prio as A
-  io.req.bits.control:= Bool(true)
-  io.req.bits.opcode := UInt(0)
-  io.req.bits.param  := UInt(0)
-  io.req.bits.size   := UInt(params.offsetBits)
+  io.req.bits.prio   := VecInit(1.U(3.W).asBools) // same prio as A
+  io.req.bits.control:= true.B
+  io.req.bits.opcode := 0.U
+  io.req.bits.param  := 0.U
+  io.req.bits.size   := params.offsetBits.U
   // The source does not matter, because a flush command never allocates a way.
   // However, it must be a legal source, otherwise assertions might spuriously fire.
-  io.req.bits.source := UInt(params.inner.client.clients.map(_.sourceId.start).min)
-  io.req.bits.offset := UInt(0)
+  io.req.bits.source := params.inner.client.clients.map(_.sourceId.start).min.U
+  io.req.bits.offset := 0.U
   io.req.bits.set    := set
   io.req.bits.tag    := tag
 }

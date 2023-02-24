@@ -17,20 +17,21 @@
 
 package sifive.blocks.inclusivecache
 
-import Chisel._
+import chisel3._
+import chisel3.util._
 import freechips.rocketchip.tilelink._
 import freechips.rocketchip.util._
 
 class PutBufferAEntry(params: InclusiveCacheParameters) extends InclusiveCacheBundle(params)
 {
-  val data = UInt(width = params.inner.bundle.dataBits)
-  val mask = UInt(width = params.inner.bundle.dataBits/8)
+  val data = UInt(params.inner.bundle.dataBits.W)
+  val mask = UInt((params.inner.bundle.dataBits/8).W)
   val corrupt = Bool()
 }
 
 class PutBufferPop(params: InclusiveCacheParameters) extends InclusiveCacheBundle(params)
 {
-  val index = UInt(width = params.putBits)
+  val index = UInt(params.putBits.W)
   val last = Bool()
 }
 
@@ -38,9 +39,9 @@ class SinkA(params: InclusiveCacheParameters) extends Module
 {
   val io = new Bundle {
     val req = Decoupled(new FullRequest(params))
-    val a = Decoupled(new TLBundleA(params.inner.bundle)).flip
+    val a = Flipped(Decoupled(new TLBundleA(params.inner.bundle)))
     // for use by SourceD:
-    val pb_pop  = Decoupled(new PutBufferPop(params)).flip
+    val pb_pop  = Flipped(Decoupled(new PutBufferPop(params)))
     val pb_beat = new PutBufferAEntry(params)
   }
 
@@ -48,10 +49,10 @@ class SinkA(params: InclusiveCacheParameters) extends Module
   val a = params.micro.innerBuf.a(io.a)
 
   val putbuffer = Module(new ListBuffer(ListBufferParameters(new PutBufferAEntry(params), params.putLists, params.putBeats, false)))
-  val lists = RegInit(UInt(0, width = params.putLists))
+  val lists = RegInit((0.U(params.putLists.W)))
 
-  val lists_set = Wire(init = UInt(0, width = params.putLists))
-  val lists_clr = Wire(init = UInt(0, width = params.putLists))
+  val lists_set = WireInit(init = 0.U(params.putLists.W))
+  val lists_clr = WireInit(init = 0.U(params.putLists.W))
   lists := (lists | lists_set) & ~lists_clr
 
   val free = !lists.andR
@@ -82,8 +83,8 @@ class SinkA(params: InclusiveCacheParameters) extends Module
   val (tag, set, offset) = params.parseAddress(a.bits.address)
   val put = Mux(first, freeIdx, RegEnable(freeIdx, first))
 
-  io.req.bits.prio   := Vec(UInt(1, width=3).asBools)
-  io.req.bits.control:= Bool(false)
+  io.req.bits.prio   := VecInit(1.U(3.W).asBools)
+  io.req.bits.control:= false.B
   io.req.bits.opcode := a.bits.opcode
   io.req.bits.param  := a.bits.param
   io.req.bits.size   := a.bits.size
@@ -100,11 +101,11 @@ class SinkA(params: InclusiveCacheParameters) extends Module
 
   // Grant access to pop the data
   putbuffer.io.pop.bits := io.pb_pop.bits.index
-  putbuffer.io.pop.valid := io.pb_pop.fire()
+  putbuffer.io.pop.valid := io.pb_pop.fire
   io.pb_pop.ready := putbuffer.io.valid(io.pb_pop.bits.index)
   io.pb_beat := putbuffer.io.data
 
-  when (io.pb_pop.fire() && io.pb_pop.bits.last) {
+  when (io.pb_pop.fire && io.pb_pop.bits.last) {
     lists_clr := UIntToOH(io.pb_pop.bits.index, params.putLists)
   }
 }
