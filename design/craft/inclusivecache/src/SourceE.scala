@@ -17,18 +17,19 @@
 
 package sifive.blocks.inclusivecache
 
-import Chisel._
+import chisel3._
+import chisel3.util._
 import freechips.rocketchip.tilelink._
 
 class SourceERequest(params: InclusiveCacheParameters) extends InclusiveCacheBundle(params)
 {
-  val sink = UInt(width = params.outer.bundle.sinkBits)
+  val sink = UInt(params.outer.bundle.sinkBits.W)
 }
 
 class SourceE(params: InclusiveCacheParameters) extends Module
 {
   val io = new Bundle {
-    val req = Decoupled(new SourceERequest(params)).flip
+    val req = Flipped(Decoupled(new SourceERequest(params)))
     val e = Decoupled(new TLBundleE(params.outer.bundle))
   }
 

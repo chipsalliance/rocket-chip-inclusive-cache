@@ -17,8 +17,8 @@
 
 package sifive.blocks.inclusivecache
 
-import Chisel._
-import freechips.rocketchip.tilelink._
+import chisel3._
+import chisel3.util._
 
 // The control port response source
 class SourceXRequest(params: InclusiveCacheParameters) extends InclusiveCacheBundle(params)
@@ -29,7 +29,7 @@ class SourceXRequest(params: InclusiveCacheParameters) extends InclusiveCacheBun
 class SourceX(params: InclusiveCacheParameters) extends Module
 {
   val io = new Bundle {
-    val req = Decoupled(new SourceXRequest(params)).flip
+    val req = Flipped(Decoupled(new SourceXRequest(params)))
     val x = Decoupled(new SourceXRequest(params))
   }
 
