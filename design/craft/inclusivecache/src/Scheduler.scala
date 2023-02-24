@@ -17,7 +17,8 @@
 
 package sifive.blocks.inclusivecache
 
-import Chisel._
+import chisel3._
+import chisel3.util._
 import freechips.rocketchip.diplomacy.AddressSet
 import freechips.rocketchip.tilelink._
 import freechips.rocketchip.util._
@@ -25,13 +26,13 @@ import freechips.rocketchip.util._
 class Scheduler(params: InclusiveCacheParameters) extends Module
 {
   val io = new Bundle {
-    val in = TLBundle(params.inner.bundle).flip
+    val in = Flipped(TLBundle(params.inner.bundle))
     val out = TLBundle(params.outer.bundle)
     // Way permissions
-    val ways = Vec(params.allClients, UInt(width = params.cache.ways)).flip
-    val divs = Vec(params.allClients, UInt(width = InclusiveCacheParameters.lfsrBits + 1)).flip
+    val ways = Flipped(Vec(params.allClients, UInt(params.cache.ways.W)))
+    val divs = Flipped(Vec(params.allClients, UInt((InclusiveCacheParameters.lfsrBits + 1).W)))
     // Control port
-    val req = Decoupled(new SinkXRequest(params)).flip
+    val req = Flipped(Decoupled(new SinkXRequest(params)))
     val resp = Decoupled(new SourceXRequest(params))
   }
 
@@ -61,7 +62,7 @@ class Scheduler(params: InclusiveCacheParameters) extends Module
   sinkD.io.d <> io.out.d
   sinkX.io.x <> io.req
 
-  io.out.b.ready := Bool(true) // disconnected
+  io.out.b.ready := true.B // disconnected
 
   val directory = Module(new Directory(params))
   val bankedStore = Module(new BankedStore(params))
@@ -75,8 +76,8 @@ class Scheduler(params: InclusiveCacheParameters) extends Module
   // Deliver messages from Sinks to MSHRs
   mshrs.zipWithIndex.foreach { case (m, i) =>
     m.io.sinkc.valid := sinkC.io.resp.valid && sinkC.io.resp.bits.set === m.io.status.bits.set
-    m.io.sinkd.valid := sinkD.io.resp.valid && sinkD.io.resp.bits.source === UInt(i)
-    m.io.sinke.valid := sinkE.io.resp.valid && sinkE.io.resp.bits.sink   === UInt(i)
+    m.io.sinkd.valid := sinkD.io.resp.valid && sinkD.io.resp.bits.source === i.U
+    m.io.sinke.valid := sinkE.io.resp.valid && sinkE.io.resp.bits.sink   === i.U
     m.io.sinkc.bits := sinkC.io.resp.bits
     m.io.sinkd.bits := sinkD.io.resp.bits
     m.io.sinke.bits := sinkE.io.resp.bits
@@ -90,7 +91,7 @@ class Scheduler(params: InclusiveCacheParameters) extends Module
   }
   val mshr_stall_bc =
     c_mshr.io.status.valid && bc_mshr.io.status.bits.set === c_mshr.io.status.bits.set
-  val mshr_stall_c = Bool(false)
+  val mshr_stall_c = false.B
   val mshr_stall = mshr_stall_abc :+ mshr_stall_bc :+ mshr_stall_c
 
 
@@ -113,7 +114,7 @@ class Scheduler(params: InclusiveCacheParameters) extends Module
   }.reverse)
 
   // Round-robin arbitration of MSHRs
-  val robin_filter = RegInit(UInt(0, width = params.mshrs))
+  val robin_filter = RegInit(0.U(params.mshrs.W))
   val robin_request = Cat(mshr_request, mshr_request & robin_filter)
   val mshr_selectOH2 = ~(leftOR(robin_request) << 1) & robin_request
   val mshr_selectOH = mshr_selectOH2(2*params.mshrs-1, params.mshrs) | mshr_selectOH2(params.mshrs-1, 0)
@@ -127,7 +128,7 @@ class Scheduler(params: InclusiveCacheParameters) extends Module
 
   // Fill in which MSHR sends the request
   schedule.a.bits.source := mshr_select
-  schedule.c.bits.source := Mux(schedule.c.bits.opcode(1), mshr_select, UInt(0)) // only set for Release[Data] not ProbeAck[Data]
+  schedule.c.bits.source := Mux(schedule.c.bits.opcode(1), mshr_select, 0.U) // only set for Release[Data] not ProbeAck[Data]
   schedule.d.bits.sink   := mshr_select
 
   sourceA.io.req := schedule.a
@@ -168,7 +169,7 @@ class Scheduler(params: InclusiveCacheParameters) extends Module
   val nestB  = Mux1H(setMatches, mshrs.map(_.io.status.bits.nestB))  && request.bits.prio(1)
   val nestC  = Mux1H(setMatches, mshrs.map(_.io.status.bits.nestC))  && request.bits.prio(2)
   // Prevent priority inversion; we may not queue to MSHRs beyond our level
-  val prioFilter = Cat(request.bits.prio(2), !request.bits.prio(0), ~UInt(0, width = params.mshrs-2))
+  val prioFilter = Cat(request.bits.prio(2), !request.bits.prio(0), ~0.U((params.mshrs-2).W))
   val lowerMatches = setMatches & prioFilter
   // If we match an MSHR <= our priority that neither blocks nor nests us, queue to it.
   val queue = lowerMatches.orR && !nestB && !nestC && !blockB && !blockC
@@ -186,8 +187,8 @@ class Scheduler(params: InclusiveCacheParameters) extends Module
   // It might happen that lowerMatches has >1 bit if the two special MSHRs are in-use
   // We want to Q to the highest matching priority MSHR.
   val lowerMatches1 =
-    Mux(lowerMatches(params.mshrs-1), UInt(1 << (params.mshrs-1)),
-    Mux(lowerMatches(params.mshrs-2), UInt(1 << (params.mshrs-2)),
+    Mux(lowerMatches(params.mshrs-1), 1.U << (params.mshrs-1),
+    Mux(lowerMatches(params.mshrs-2), 1.U << (params.mshrs-2),
     lowerMatches))
 
   // If this goes to the scheduled MSHR, it may need to be bypassed
@@ -219,7 +220,7 @@ class Scheduler(params: InclusiveCacheParameters) extends Module
     val may_pop = a_pop || b_pop || c_pop
     val bypass = request.valid && queue && bypassMatches
     val will_reload = m.io.schedule.bits.reload && (may_pop || bypass)
-    m.io.allocate.bits := Mux(bypass, Wire(new QueuedRequest(params), init = request.bits), requests.io.data)
+    m.io.allocate.bits := Mux(bypass, WireInit(new QueuedRequest(params), init = request.bits), requests.io.data)
     m.io.allocate.bits.set := m.io.status.bits.set
     m.io.allocate.bits.repeat := m.io.allocate.bits.tag === m.io.status.bits.tag
     m.io.allocate.valid := sel && will_reload
@@ -267,33 +268,33 @@ class Scheduler(params: InclusiveCacheParameters) extends Module
   val mshr_insertOH = ~(leftOR(~mshr_validOH) << 1) & ~mshr_validOH & prioFilter
   (mshr_insertOH.asBools zip mshrs) map { case (s, m) =>
     when (request.valid && alloc && s && !mshr_uses_directory_assuming_no_bypass) {
-      m.io.allocate.valid := Bool(true)
+      m.io.allocate.valid := true.B
       m.io.allocate.bits := request.bits
-      m.io.allocate.bits.repeat := Bool(false)
+      m.io.allocate.bits.repeat := false.B
     }
   }
 
   when (request.valid && nestB && !bc_mshr.io.status.valid && !c_mshr.io.status.valid && !mshr_uses_directory_assuming_no_bypass) {
-    bc_mshr.io.allocate.valid := Bool(true)
+    bc_mshr.io.allocate.valid := true.B
     bc_mshr.io.allocate.bits := request.bits
-    bc_mshr.io.allocate.bits.repeat := Bool(false)
+    bc_mshr.io.allocate.bits.repeat := false.B
     assert (!request.bits.prio(0))
   }
-  bc_mshr.io.allocate.bits.prio(0) := Bool(false)
+  bc_mshr.io.allocate.bits.prio(0) := false.B
 
   when (request.valid && nestC && !c_mshr.io.status.valid && !mshr_uses_directory_assuming_no_bypass) {
-    c_mshr.io.allocate.valid := Bool(true)
+    c_mshr.io.allocate.valid := true.B
     c_mshr.io.allocate.bits := request.bits
-    c_mshr.io.allocate.bits.repeat := Bool(false)
+    c_mshr.io.allocate.bits.repeat := false.B
     assert (!request.bits.prio(0))
     assert (!request.bits.prio(1))
   }
-  c_mshr.io.allocate.bits.prio(0) := Bool(false)
-  c_mshr.io.allocate.bits.prio(1) := Bool(false)
+  c_mshr.io.allocate.bits.prio(0) := false.B
+  c_mshr.io.allocate.bits.prio(1) := false.B
 
   // Fanout the result of the Directory lookup
-  val dirTarget = Mux(alloc, mshr_insertOH, Mux(nestB, UInt(1 << (params.mshrs-2)), UInt(1 << (params.mshrs-1))))
-  val directoryFanout = params.dirReg(RegNext(Mux(mshr_uses_directory, mshr_selectOH, Mux(alloc_uses_directory, dirTarget, UInt(0)))))
+  val dirTarget = Mux(alloc, mshr_insertOH, Mux(nestB,(1 << (params.mshrs-2)).U,(1 << (params.mshrs-1)).U))
+  val directoryFanout = params.dirReg(RegNext(Mux(mshr_uses_directory, mshr_selectOH, Mux(alloc_uses_directory, dirTarget, 0.U))))
   mshrs.zipWithIndex.foreach { case (m, i) =>
     m.io.directory.valid := directoryFanout(i)
     m.io.directory.bits := directory.io.result.bits
@@ -305,8 +306,8 @@ class Scheduler(params: InclusiveCacheParameters) extends Module
       bc_mshr.io.status.bits.way,
       Mux1H(abc_mshrs.map(m => m.io.status.valid && m.io.status.bits.set === sinkC.io.set),
             abc_mshrs.map(_.io.status.bits.way)))
-  sinkD.io.way := Vec(mshrs.map(_.io.status.bits.way))(sinkD.io.source)
-  sinkD.io.set := Vec(mshrs.map(_.io.status.bits.set))(sinkD.io.source)
+  sinkD.io.way := VecInit(mshrs.map(_.io.status.bits.way))(sinkD.io.source)
+  sinkD.io.set := VecInit(mshrs.map(_.io.status.bits.set))(sinkD.io.source)
 
   // Beat buffer connections between components
   sinkA.io.pb_pop <> sourceD.io.pb_pop
