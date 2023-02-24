@@ -17,7 +17,8 @@
 
 package sifive.blocks.inclusivecache
 
-import Chisel._
+import chisel3._
+import chisel3.util._
 import freechips.rocketchip.util._
 
 case class ListBufferParameters[T <: Data](gen: T, queues: Int, entries: Int, bypass: Boolean)
@@ -26,42 +27,42 @@ case class ListBufferParameters[T <: Data](gen: T, queues: Int, entries: Int, by
   val entryBits = log2Up(entries)
 }
 
-class ListBufferPush[T <: Data](params: ListBufferParameters[T]) extends GenericParameterizedBundle(params)
+class ListBufferPush[T <: Data](params: ListBufferParameters[T]) extends Bundle
 {
-  val index = UInt(width = params.queueBits)
-  val data  = params.gen.asOutput
+  val index = UInt(params.queueBits.W)
+  val data  = Output(params.gen)
 }
 
 class ListBuffer[T <: Data](params: ListBufferParameters[T]) extends Module
 {
   val io = new Bundle {
     // push is visible on the same cycle; flow queues
-    val push  = Decoupled(new ListBufferPush(params)).flip
-    val valid = UInt(width = params.queues)
-    val pop   = Valid(UInt(width = params.queueBits)).flip
-    val data  = params.gen.asOutput
+    val push  = Flipped(Decoupled(new ListBufferPush(params)))
+    val valid = UInt(params.queues.W)
+    val pop   = Flipped(Valid(UInt(params.queueBits.W)))
+    val data  = Output(params.gen)
   }
 
-  val valid = RegInit(UInt(0, width=params.queues))
-  val head  = Mem(params.queues, UInt(width = params.entryBits))
-  val tail  = Mem(params.queues, UInt(width = params.entryBits))
-  val used  = RegInit(UInt(0, width=params.entries))
-  val next  = Mem(params.entries, UInt(width = params.entryBits))
+  val valid = RegInit(0.U(params.queues.W))
+  val head  = Mem(params.queues, UInt(params.entryBits.W))
+  val tail  = Mem(params.queues, UInt(params.entryBits.W))
+  val used  = RegInit(0.U(params.entries.W))
+  val next  = Mem(params.entries, UInt(params.entryBits.W))
   val data  = Mem(params.entries, params.gen)
 
   val freeOH = ~(leftOR(~used) << 1) & ~used
   val freeIdx = OHToUInt(freeOH)
 
-  val valid_set = Wire(init = UInt(0, width=params.queues))
-  val valid_clr = Wire(init = UInt(0, width=params.queues))
-  val used_set  = Wire(init = UInt(0, width=params.entries))
-  val used_clr  = Wire(init = UInt(0, width=params.entries))
+  val valid_set = Wire(0.U(params.queues.W))
+  val valid_clr = Wire(0.U(params.queues.W))
+  val used_set  = Wire(0.U(params.entries.W))
+  val used_clr  = Wire(0.U(params.entries.W))
 
   val push_tail = tail.read(io.push.bits.index)
   val push_valid = valid(io.push.bits.index)
 
   io.push.ready := !used.andR
-  when (io.push.fire()) {
+  when (io.push.fire) {
     valid_set := UIntToOH(io.push.bits.index, params.queues)
     used_set := freeOH
     data.write(freeIdx, io.push.bits.data)
@@ -81,18 +82,18 @@ class ListBuffer[T <: Data](params: ListBufferParameters[T]) extends Module
   io.valid := (if (!params.bypass) valid else (valid | valid_set))
 
   // It is an error to pop something that is not valid
-  assert (!io.pop.fire() || (io.valid)(io.pop.bits))
+  assert (!io.pop.fire || (io.valid)(io.pop.bits))
 
-  when (io.pop.fire()) {
+  when (io.pop.fire) {
     used_clr := UIntToOH(pop_head, params.entries)
     when (pop_head === tail.read(io.pop.bits)) {
       valid_clr := UIntToOH(io.pop.bits, params.queues)
     }
-    head.write(io.pop.bits, Mux(io.push.fire() && push_valid && push_tail === pop_head, freeIdx, next.read(pop_head)))
+    head.write(io.pop.bits, Mux(io.push.fire && push_valid && push_tail === pop_head, freeIdx, next.read(pop_head)))
   }
 
   // Empty bypass changes no state
-  when (Bool(!params.bypass) || !io.pop.valid || pop_valid) {
+  when ((!params.bypass).B || !io.pop.valid || pop_valid) {
     used  := (used  & ~used_clr)  | used_set
     valid := (valid & ~valid_clr) | valid_set
   }
