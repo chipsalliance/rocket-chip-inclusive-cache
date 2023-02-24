@@ -17,7 +17,8 @@
 
 package sifive.blocks.inclusivecache
 
-import Chisel._
+import chisel3._
+import chisel3.util._
 
 import org.chipsalliance.cde.config._
 import freechips.rocketchip.diplomacy._
@@ -25,8 +26,6 @@ import freechips.rocketchip.diplomacy._
 
 import freechips.rocketchip.regmapper._
 import freechips.rocketchip.tilelink._
-import freechips.rocketchip.subsystem.BankedL2Key
-import freechips.rocketchip.util._
 
 class InclusiveCache(
   val cache: CacheParameters,
@@ -125,43 +124,43 @@ class InclusiveCache(
     }
 
     // Flush directive
-    val flushInValid   = RegInit(Bool(false))
-    val flushInReady   = Wire(init = Bool(false))
-    val flushInAddress = Reg(UInt(width = 64))
-    val flushNoMatch   = Wire(init = Bool(true))
-    val flushOutValid  = RegInit(Bool(false))
-    val flushOutReady  = Wire(init = Bool(false))
+    val flushInValid   = RegInit(false.B)
+    val flushInReady   = WireInit(init = false.B)
+    val flushInAddress = Reg(UInt(64.W))
+    val flushNoMatch   = WireInit(init = true.B)
+    val flushOutValid  = RegInit(false.B)
+    val flushOutReady  = WireInit(init = false.B)
 
-    when (flushOutReady) { flushOutValid := Bool(false) }
-    when (flushInReady)  { flushInValid  := Bool(false) }
+    when (flushOutReady) { flushOutValid := false.B }
+    when (flushInReady)  { flushInValid  := false.B }
 
     when (flushNoMatch && flushInValid) {
-      flushInReady := Bool(true)
-      flushOutValid := Bool(true)
+      flushInReady := true.B
+      flushOutValid := true.B
     }
 
     val flush32 = RegField.w(32, RegWriteFn((ivalid, oready, data) => {
-      when (oready) { flushOutReady := Bool(true) }
-      when (ivalid) { flushInValid := Bool(true) }
+      when (oready) { flushOutReady := true.B }
+      when (ivalid) { flushInValid := true.B }
       when (ivalid && !flushInValid) { flushInAddress := data << 4 }
       (!flushInValid, flushOutValid)
     }), RegFieldDesc("Flush32", "Flush the physical address equal to the 32-bit written data << 4 from the cache"))
 
     val flush64 = RegField.w(64, RegWriteFn((ivalid, oready, data) => {
-      when (oready) { flushOutReady := Bool(true) }
-      when (ivalid) { flushInValid := Bool(true) }
+      when (oready) { flushOutReady := true.B }
+      when (ivalid) { flushInValid := true.B }
       when (ivalid && !flushInValid) { flushInAddress := data }
       (!flushInValid, flushOutValid)
     }), RegFieldDesc("Flush64", "Flush the phsyical address equal to the 64-bit written data from the cache"))
 
     // Information about the cache configuration
-    val banksR  = RegField.r(8, UInt(node.edges.in.size),               RegFieldDesc("Banks",
+    val banksR  = RegField.r(8, node.edges.in.size.U,               RegFieldDesc("Banks",
       "Number of banks in the cache", reset=Some(node.edges.in.size)))
-    val waysR   = RegField.r(8, UInt(cache.ways),                       RegFieldDesc("Ways",
+    val waysR   = RegField.r(8, cache.ways.U,                       RegFieldDesc("Ways",
       "Number of ways per bank", reset=Some(cache.ways)))
-    val lgSetsR = RegField.r(8, UInt(log2Ceil(cache.sets)),             RegFieldDesc("lgSets",
+    val lgSetsR = RegField.r(8, log2Ceil(cache.sets).U,             RegFieldDesc("lgSets",
       "Base-2 logarithm of the sets per bank", reset=Some(log2Ceil(cache.sets))))
-    val lgBlockBytesR = RegField.r(8, UInt(log2Ceil(cache.blockBytes)), RegFieldDesc("lgBlockBytes",
+    val lgBlockBytesR = RegField.r(8, log2Ceil(cache.blockBytes).U, RegFieldDesc("lgBlockBytes",
       "Base-2 logarithm of the bytes per cache block", reset=Some(log2Ceil(cache.blockBytes))))
 
     val regmap = ctlnode.map { c =>
@@ -190,10 +189,10 @@ class InclusiveCache(
       out <> scheduler.io.out
 
       val flushSelect = edgeIn.manager.managers.flatMap(_.address).map(_.contains(flushInAddress)).reduce(_||_)
-      when (flushSelect) { flushNoMatch := Bool(false) }
+      when (flushSelect) { flushNoMatch := false.B }
 
-      when (flushSelect && scheduler.io.req.ready)  { flushInReady := Bool(true) }
-      when (scheduler.io.resp.valid) { flushOutValid := Bool(true) }
+      when (flushSelect && scheduler.io.req.ready)  { flushInReady := true.B }
+      when (scheduler.io.resp.valid) { flushOutValid := true.B }
       assert (!scheduler.io.resp.valid || flushSelect)
 
       scheduler.io.req.valid := flushInValid && flushSelect
