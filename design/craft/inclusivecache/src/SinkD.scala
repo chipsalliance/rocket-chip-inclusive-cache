@@ -17,16 +17,17 @@
 
 package sifive.blocks.inclusivecache
 
-import Chisel._
+import chisel3._
+import chisel3.util._
 import freechips.rocketchip.tilelink._
 
 class SinkDResponse(params: InclusiveCacheParameters) extends InclusiveCacheBundle(params)
 {
   val last   = Bool()
-  val opcode = UInt(width = 3)
-  val param  = UInt(width = 3)
-  val source = UInt(width = params.outer.bundle.sourceBits)
-  val sink   = UInt(width = params.outer.bundle.sinkBits)
+  val opcode = UInt(3.W)
+  val param  = UInt(3.W)
+  val source = UInt(params.outer.bundle.sourceBits.W)
+  val sink   = UInt(params.outer.bundle.sinkBits.W)
   val denied = Bool()
 }
 
@@ -34,17 +35,17 @@ class SinkD(params: InclusiveCacheParameters) extends Module
 {
   val io = new Bundle {
     val resp = Valid(new SinkDResponse(params)) // Grant or ReleaseAck
-    val d = Decoupled(new TLBundleD(params.outer.bundle)).flip
+    val d = Flipped(Decoupled(new TLBundleD(params.outer.bundle)))
     // Lookup the set+way from MSHRs
-    val source = UInt(width = params.outer.bundle.sourceBits)
-    val way    = UInt(width = params.wayBits).flip
-    val set    = UInt(width = params.setBits).flip
+    val source = UInt(params.outer.bundle.sourceBits.W)
+    val way    = Flipped(UInt(params.wayBits.W))
+    val set    = Flipped(UInt(params.setBits.W))
     // Banked Store port
     val bs_adr = Decoupled(new BankedStoreOuterAddress(params))
     val bs_dat = new BankedStoreOuterPoison(params)
     // WaR hazard
     val grant_req = new SourceDHazard(params)
-    val grant_safe = Bool().flip
+    val grant_safe = Flipped(Bool())
   }
 
   // No restrictions on buffer
@@ -58,7 +59,7 @@ class SinkD(params: InclusiveCacheParameters) extends Module
   io.grant_req.set := io.set
 
   // Also send Grant(NoData) to BS to ensure correct data ordering
-  io.resp.valid := (first || last) && d.fire()
+  io.resp.valid := (first || last) && d.fire
   d.ready := io.bs_adr.ready && (!first || io.grant_safe)
   io.bs_adr.valid := !first || (d.valid && io.grant_safe)
   params.ccover(d.valid && first && !io.grant_safe, "SINKD_HAZARD", "Prevented Grant data hazard with backpressure")
@@ -75,7 +76,7 @@ class SinkD(params: InclusiveCacheParameters) extends Module
   io.bs_adr.bits.way  := io.way
   io.bs_adr.bits.set  := io.set
   io.bs_adr.bits.beat := Mux(d.valid, beat, RegEnable(beat + io.bs_adr.ready.asUInt, d.valid))
-  io.bs_adr.bits.mask := ~UInt(0, width = params.outerMaskBits)
+  io.bs_adr.bits.mask := ~0.U(params.outerMaskBits.W)
   io.bs_dat.data      := d.bits.data
 
   assert (!(d.valid && d.bits.corrupt && !d.bits.denied), "Data poisoning unsupported")
