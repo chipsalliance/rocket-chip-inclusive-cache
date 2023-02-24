@@ -17,7 +17,8 @@
 
 package sifive.blocks.inclusivecache
 
-import Chisel._
+import chisel3._
+import chisel3.util._
 import freechips.rocketchip.tilelink._
 import freechips.rocketchip.util._
 import TLMessages._
@@ -26,44 +27,44 @@ import TLPermissions._
 
 class SourceDRequest(params: InclusiveCacheParameters) extends FullRequest(params)
 {
-  val sink = UInt(width = params.inner.bundle.sinkBits)
-  val way  = UInt(width = params.wayBits)
+  val sink = UInt(params.inner.bundle.sinkBits.W)
+  val way  = UInt(params.wayBits.W)
   val bad  = Bool()
 }
 
 class SourceDHazard(params: InclusiveCacheParameters) extends InclusiveCacheBundle(params)
 {
-  val set = UInt(width = params.setBits)
-  val way = UInt(width = params.wayBits)
+  val set = UInt(params.setBits.W)
+  val way = UInt(params.wayBits.W)
 }
 
 class PutBufferACEntry(params: InclusiveCacheParameters) extends InclusiveCacheBundle(params)
 {
-  val data = UInt(width = params.inner.bundle.dataBits)
-  val mask = UInt(width = params.inner.bundle.dataBits/8)
+  val data = UInt(params.inner.bundle.dataBits.W)
+  val mask = UInt((params.inner.bundle.dataBits/8).W)
   val corrupt = Bool()
 }
 
 class SourceD(params: InclusiveCacheParameters) extends Module
 {
   val io = new Bundle {
-    val req = Decoupled(new SourceDRequest(params)).flip
+    val req = Flipped(Decoupled(new SourceDRequest(params)))
     val d = Decoupled(new TLBundleD(params.inner.bundle))
     // Put data from SinkA
     val pb_pop = Decoupled(new PutBufferPop(params))
-    val pb_beat = new PutBufferAEntry(params).flip
+    val pb_beat = Flipped(new PutBufferAEntry(params))
     // Release data from SinkC
     val rel_pop  = Decoupled(new PutBufferPop(params))
-    val rel_beat = new PutBufferCEntry(params).flip
+    val rel_beat = Flipped(new PutBufferCEntry(params))
     // Access to the BankedStore
     val bs_radr = Decoupled(new BankedStoreInnerAddress(params))
-    val bs_rdat = new BankedStoreInnerDecoded(params).flip
+    val bs_rdat = Flipped(new BankedStoreInnerDecoded(params))
     val bs_wadr = Decoupled(new BankedStoreInnerAddress(params))
     val bs_wdat = new BankedStoreInnerPoison(params)
     // Is it safe to evict/replace this way?
-    val evict_req  = new SourceDHazard(params).flip
+    val evict_req  = Flipped(new SourceDHazard(params))
     val evict_safe = Bool()
-    val grant_req  = new SourceDHazard(params).flip
+    val grant_req  = Flipped(new SourceDHazard(params))
     val grant_safe = Bool()
   }
 
@@ -80,34 +81,34 @@ class SourceD(params: InclusiveCacheParameters) extends Module
   ////////////////////////////////////// STAGE 1 //////////////////////////////////////
   // Reform the request beats
 
-  val busy = RegInit(Bool(false))
-  val s1_block_r = RegInit(Bool(false))
-  val s1_counter = RegInit(UInt(0, width = params.innerBeatBits))
+  val busy = RegInit(false.B)
+  val s1_block_r = RegInit(false.B)
+  val s1_counter = RegInit(0.U(params.innerBeatBits.W))
   val s1_req_reg = RegEnable(io.req.bits, !busy && io.req.valid)
   val s1_req = Mux(!busy, io.req.bits, s1_req_reg)
-  val s1_x_bypass = Wire(UInt(width = beatBytes/writeBytes)) // might go from high=>low during stall
+  val s1_x_bypass = Wire(UInt((beatBytes/writeBytes).W)) // might go from high=>low during stall
   val s1_latch_bypass = RegNext(!(busy || io.req.valid) || s2_ready)
   val s1_bypass = Mux(s1_latch_bypass, s1_x_bypass, RegEnable(s1_x_bypass, s1_latch_bypass))
   val s1_mask = MaskGen(s1_req.offset, s1_req.size, beatBytes, writeBytes) & ~s1_bypass
   val s1_grant = (s1_req.opcode === AcquireBlock && s1_req.param === BtoT) || s1_req.opcode === AcquirePerm
   val s1_need_r = s1_mask.orR && s1_req.prio(0) && s1_req.opcode =/= Hint && !s1_grant &&
-                  (s1_req.opcode =/= PutFullData || s1_req.size < UInt(log2Ceil(writeBytes)))
+                  (s1_req.opcode =/= PutFullData || s1_req.size < log2Ceil(writeBytes).U )
   val s1_valid_r = (busy || io.req.valid) && s1_need_r && !s1_block_r
   val s1_need_pb = Mux(s1_req.prio(0), !s1_req.opcode(2), s1_req.opcode(0)) // hasData
   val s1_single = Mux(s1_req.prio(0), s1_req.opcode === Hint || s1_grant, s1_req.opcode === Release)
   val s1_retires = !s1_single // retire all operations with data in s3 for bypass (saves energy)
   // Alternatively: val s1_retires = s1_need_pb // retire only updates for bypass (less backpressure from WB)
-  val s1_beats1 = Mux(s1_single, UInt(0), UIntToOH1(s1_req.size, log2Up(params.cache.blockBytes)) >> log2Ceil(beatBytes))
+  val s1_beats1 = Mux(s1_single, 0.U, UIntToOH1(s1_req.size, log2Up(params.cache.blockBytes)) >> log2Ceil(beatBytes))
   val s1_beat = (s1_req.offset >> log2Ceil(beatBytes)) | s1_counter
   val s1_last = s1_counter === s1_beats1
-  val s1_first = s1_counter === UInt(0)
+  val s1_first = s1_counter === 0.U
 
   params.ccover(s1_block_r, "SOURCED_1_SRAM_HOLD", "SRAM read-out successful, but stalled by stage 2")
   params.ccover(!s1_latch_bypass, "SOURCED_1_BYPASS_HOLD", "Bypass match successful, but stalled by stage 2")
   params.ccover((busy || io.req.valid) && !s1_need_r, "SOURCED_1_NO_MODIFY", "Transaction servicable without SRAM")
 
   io.bs_radr.valid     := s1_valid_r
-  io.bs_radr.bits.noop := Bool(false)
+  io.bs_radr.bits.noop := false.B
   io.bs_radr.bits.way  := s1_req.way
   io.bs_radr.bits.set  := s1_req.set
   io.bs_radr.bits.beat := s1_beat
@@ -117,20 +118,20 @@ class SourceD(params: InclusiveCacheParameters) extends Module
 
   // Make a queue to catch BS readout during stalls
   val queue = Module(new Queue(io.bs_rdat, 3, flow=true))
-  queue.io.enq.valid := RegNext(RegNext(io.bs_radr.fire()))
+  queue.io.enq.valid := RegNext(RegNext(io.bs_radr.fire))
   queue.io.enq.bits := io.bs_rdat
   assert (!queue.io.enq.valid || queue.io.enq.ready)
 
   params.ccover(!queue.io.enq.ready, "SOURCED_1_QUEUE_FULL", "Filled SRAM skidpad queue completely")
 
-  when (io.bs_radr.fire()) { s1_block_r := Bool(true) }
-  when (io.req.valid) { busy := Bool(true) }
+  when (io.bs_radr.fire) { s1_block_r := true.B }
+  when (io.req.valid) { busy := true.B }
   when (s1_valid && s2_ready) {
-    s1_counter := s1_counter + UInt(1)
-    s1_block_r := Bool(false)
+    s1_counter := s1_counter + 1.U
+    s1_block_r := false.B
     when (s1_last) {
-      s1_counter := UInt(0)
-      busy := Bool(false)
+      s1_counter := 0.U
+      busy := false.B
     }
   }
 
@@ -143,8 +144,8 @@ class SourceD(params: InclusiveCacheParameters) extends Module
   // Fetch the request data
 
   val s2_latch = s1_valid && s2_ready
-  val s2_full = RegInit(Bool(false))
-  val s2_valid_pb = RegInit(Bool(false))
+  val s2_full = RegInit(false.B)
+  val s2_valid_pb = RegInit(false.B)
   val s2_beat = RegEnable(s1_beat, s2_latch)
   val s2_bypass = RegEnable(s1_bypass, s2_latch)
   val s2_req = RegEnable(s1_req, s2_latch)
@@ -157,7 +158,7 @@ class SourceD(params: InclusiveCacheParameters) extends Module
   val s2_pdata = s2_pdata_raw holdUnless s2_valid_pb
 
   s2_pdata_raw.data    := Mux(s2_req.prio(0), io.pb_beat.data, io.rel_beat.data)
-  s2_pdata_raw.mask    := Mux(s2_req.prio(0), io.pb_beat.mask, ~UInt(0, width = params.inner.manager.beatBytes))
+  s2_pdata_raw.mask    := Mux(s2_req.prio(0), io.pb_beat.mask, ~0.U(params.inner.manager.beatBytes.W))
   s2_pdata_raw.corrupt := Mux(s2_req.prio(0), io.pb_beat.corrupt, io.rel_beat.corrupt)
 
   io.pb_pop.valid := s2_valid_pb && s2_req.prio(0)
@@ -172,10 +173,10 @@ class SourceD(params: InclusiveCacheParameters) extends Module
     params.ccover(io.rel_pop.valid && !io.rel_pop.ready, "SOURCED_2_PUTC_STALL", "Channel C put buffer was not ready in time")
 
   val pb_ready = Mux(s2_req.prio(0), io.pb_pop.ready, io.rel_pop.ready)
-  when (pb_ready) { s2_valid_pb := Bool(false) }
-  when (s2_valid && s3_ready) { s2_full := Bool(false) }
+  when (pb_ready) { s2_valid_pb := false.B }
+  when (s2_valid && s3_ready) { s2_full := false.B }
   when (s2_latch) { s2_valid_pb := s1_need_pb }
-  when (s2_latch) { s2_full := Bool(true) }
+  when (s2_latch) { s2_full := true.B }
 
   params.ccover(s2_valid && !s3_ready, "SOURCED_2_STALL", "Stage 2 pipeline blocked")
 
@@ -186,8 +187,8 @@ class SourceD(params: InclusiveCacheParameters) extends Module
   // Send D response
 
   val s3_latch = s2_valid && s3_ready
-  val s3_full = RegInit(Bool(false))
-  val s3_valid_d = RegInit(Bool(false))
+  val s3_full = RegInit(false.B)
+  val s3_valid_d = RegInit(false.B)
   val s3_beat = RegEnable(s2_beat, s3_latch)
   val s3_bypass = RegEnable(s2_bypass, s3_latch)
   val s3_req = RegEnable(s2_req, s3_latch)
@@ -211,7 +212,7 @@ class SourceD(params: InclusiveCacheParameters) extends Module
 
   // Lookup table for response codes
   val grant = Mux(s3_req.param === BtoT, Grant, GrantData)
-  val resp_opcode = Vec(Seq(AccessAck, AccessAck, AccessAckData, AccessAckData, AccessAckData, HintAck, grant, Grant))
+  val resp_opcode = VecInit(Seq(AccessAck, AccessAck, AccessAckData, AccessAckData, AccessAckData, HintAck, grant, Grant))
 
   // No restrictions on the type of buffer used here
   val d = Wire(io.d)
@@ -219,7 +220,7 @@ class SourceD(params: InclusiveCacheParameters) extends Module
 
   d.valid := s3_valid_d
   d.bits.opcode  := Mux(s3_req.prio(0), resp_opcode(s3_req.opcode), ReleaseAck)
-  d.bits.param   := Mux(s3_req.prio(0) && s3_acq, Mux(s3_req.param =/= NtoB, toT, toB), UInt(0))
+  d.bits.param   := Mux(s3_req.prio(0) && s3_acq, Mux(s3_req.param =/= NtoB, toT, toB), 0.U)
   d.bits.size    := s3_req.size
   d.bits.source  := s3_req.source
   d.bits.sink    := s3_req.sink
@@ -230,10 +231,10 @@ class SourceD(params: InclusiveCacheParameters) extends Module
   queue.io.deq.ready := s3_valid && s4_ready && s3_need_r
   assert (!s3_full || !s3_need_r || queue.io.deq.valid)
 
-  when (d.ready) { s3_valid_d := Bool(false) }
-  when (s3_valid && s4_ready) { s3_full := Bool(false) }
+  when (d.ready) { s3_valid_d := false.B }
+  when (s3_valid && s4_ready) { s3_full := false.B }
   when (s3_latch) { s3_valid_d := s2_need_d }
-  when (s3_latch) { s3_full := Bool(true) }
+  when (s3_latch) { s3_full := true.B }
 
   params.ccover(s3_valid && !s4_ready, "SOURCED_3_STALL", "Stage 3 pipeline blocked")
 
@@ -244,7 +245,7 @@ class SourceD(params: InclusiveCacheParameters) extends Module
   // Writeback updated data
 
   val s4_latch = s3_valid && s3_retires && s4_ready
-  val s4_full = RegInit(Bool(false))
+  val s4_full = RegInit(false.B)
   val s4_beat = RegEnable(s3_beat, s4_latch)
   val s4_need_r = RegEnable(s3_need_r, s4_latch)
   val s4_need_bs = RegEnable(s3_need_bs, s4_latch)
@@ -258,15 +259,15 @@ class SourceD(params: InclusiveCacheParameters) extends Module
   atomics.io.write     := s4_req.prio(2)
   atomics.io.a.opcode  := s4_adjusted_opcode
   atomics.io.a.param   := s4_req.param
-  atomics.io.a.size    := UInt(0)
-  atomics.io.a.source  := UInt(0)
-  atomics.io.a.address := UInt(0)
+  atomics.io.a.size    := 0.U
+  atomics.io.a.source  := 0.U
+  atomics.io.a.address := 0.U
   atomics.io.a.mask    := s4_pdata.mask
   atomics.io.a.data    := s4_pdata.data
   atomics.io.data_in   := s4_rdata
 
   io.bs_wadr.valid := s4_full && s4_need_bs
-  io.bs_wadr.bits.noop := Bool(false)
+  io.bs_wadr.bits.noop := false.B
   io.bs_wadr.bits.way  := s4_req.way
   io.bs_wadr.bits.set  := s4_req.set
   io.bs_wadr.bits.beat := s4_beat
@@ -285,8 +286,8 @@ class SourceD(params: InclusiveCacheParameters) extends Module
   params.ccover(s4_req.prio(0) && s4_req.opcode === LogicalData    && s4_req.param === AND,  "SOURCED_4_ATOMIC_AND",  "Evaluated a bitwise AND atomic")
   params.ccover(s4_req.prio(0) && s4_req.opcode === LogicalData    && s4_req.param === SWAP, "SOURCED_4_ATOMIC_SWAP", "Evaluated a bitwise SWAP atomic")
 
-  when (io.bs_wadr.ready || !s4_need_bs) { s4_full := Bool(false) }
-  when (s4_latch) { s4_full := Bool(true) }
+  when (io.bs_wadr.ready || !s4_need_bs) { s4_full := false.B }
+  when (s4_latch) { s4_full := true.B }
 
   s4_ready := !s3_retires || !s4_full || io.bs_wadr.ready || !s4_need_bs
 
@@ -327,9 +328,9 @@ class SourceD(params: InclusiveCacheParameters) extends Module
   val pre_s3_5_match  = pre_s5_req.set === pre_s3_req.set && pre_s5_req.way === pre_s3_req.way && pre_s5_beat === pre_s3_beat
   val pre_s3_6_match  = pre_s6_req.set === pre_s3_req.set && pre_s6_req.way === pre_s3_req.way && pre_s6_beat === pre_s3_beat
 
-  val pre_s3_4_bypass = Mux(pre_s3_4_match, MaskGen(pre_s4_req.offset, pre_s4_req.size, beatBytes, writeBytes), UInt(0))
-  val pre_s3_5_bypass = Mux(pre_s3_5_match, MaskGen(pre_s5_req.offset, pre_s5_req.size, beatBytes, writeBytes), UInt(0))
-  val pre_s3_6_bypass = Mux(pre_s3_6_match, MaskGen(pre_s6_req.offset, pre_s6_req.size, beatBytes, writeBytes), UInt(0))
+  val pre_s3_4_bypass = Mux(pre_s3_4_match, MaskGen(pre_s4_req.offset, pre_s4_req.size, beatBytes, writeBytes), 0.U)
+  val pre_s3_5_bypass = Mux(pre_s3_5_match, MaskGen(pre_s5_req.offset, pre_s5_req.size, beatBytes, writeBytes), 0.U)
+  val pre_s3_6_bypass = Mux(pre_s3_6_match, MaskGen(pre_s6_req.offset, pre_s6_req.size, beatBytes, writeBytes), 0.U)
 
   s3_bypass_data :=
     bypass(RegNext(pre_s3_4_bypass), atomics.io.data_out, RegNext(
@@ -344,16 +345,16 @@ class SourceD(params: InclusiveCacheParameters) extends Module
   val s1_4_match  = s4_req.set === s1_req.set && s4_req.way === s1_req.way && s4_beat === s1_beat && s4_full
 
   for (i <- 0 until 8) {
-    val cover = UInt(i)
+    val cover = 1.U
     val s2 = s1_2_match === cover(0)
     val s3 = s1_3_match === cover(1)
     val s4 = s1_4_match === cover(2)
     params.ccover(io.req.valid && s2 && s3 && s4, "SOURCED_BYPASS_CASE_" + i, "Bypass data from all subsets of pipeline stages")
   }
 
-  val s1_2_bypass = Mux(s1_2_match, MaskGen(s2_req.offset, s2_req.size, beatBytes, writeBytes), UInt(0))
-  val s1_3_bypass = Mux(s1_3_match, MaskGen(s3_req.offset, s3_req.size, beatBytes, writeBytes), UInt(0))
-  val s1_4_bypass = Mux(s1_4_match, MaskGen(s4_req.offset, s4_req.size, beatBytes, writeBytes), UInt(0))
+  val s1_2_bypass = Mux(s1_2_match, MaskGen(s2_req.offset, s2_req.size, beatBytes, writeBytes), 0.U)
+  val s1_3_bypass = Mux(s1_3_match, MaskGen(s3_req.offset, s3_req.size, beatBytes, writeBytes), 0.U)
+  val s1_4_bypass = Mux(s1_4_match, MaskGen(s4_req.offset, s4_req.size, beatBytes, writeBytes), 0.U)
 
   s1_x_bypass := s1_2_bypass | s1_3_bypass | s1_4_bypass
 
