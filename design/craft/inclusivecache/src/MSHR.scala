@@ -529,7 +529,7 @@ class MSHR(params: InclusiveCacheParameters) extends Module
   }
 
   when (io.allocate.valid) {
-    assert (!request_valid || (no_wait && io.schedule.fire()))
+    assert (!request_valid || (no_wait && io.schedule.fire))
     request_valid := true.B
     request := io.allocate.bits
   }
