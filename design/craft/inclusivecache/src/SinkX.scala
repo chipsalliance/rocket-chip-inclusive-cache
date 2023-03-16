@@ -27,10 +27,10 @@ class SinkXRequest(params: InclusiveCacheParameters) extends InclusiveCacheBundl
 
 class SinkX(params: InclusiveCacheParameters) extends Module
 {
-  val io = new Bundle {
+  val io = IO(new Bundle {
     val req = Decoupled(new FullRequest(params))
     val x = Flipped(Decoupled(new SinkXRequest(params)))
-  }
+  })
 
   val x = Queue(io.x, 1)
   val (tag, set, offset) = params.parseAddress(x.bits.address)

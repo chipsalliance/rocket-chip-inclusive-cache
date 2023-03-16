@@ -32,10 +32,10 @@ class SourceARequest(params: InclusiveCacheParameters) extends InclusiveCacheBun
 
 class SourceA(params: InclusiveCacheParameters) extends Module
 {
-  val io = new Bundle {
+  val io = IO(new Bundle {
     val req = Flipped(Decoupled(new SourceARequest(params)))
     val a = Decoupled(new TLBundleA(params.outer.bundle))
-  }
+  })
 
   // ready must be a register, because we derive valid from ready
   require (!params.micro.outerBuf.a.pipe && params.micro.outerBuf.a.isDefined)

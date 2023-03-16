@@ -25,7 +25,7 @@ import freechips.rocketchip.util._
 
 class Scheduler(params: InclusiveCacheParameters) extends Module
 {
-  val io = new Bundle {
+  val io = IO(new Bundle {
     val in = Flipped(TLBundle(params.inner.bundle))
     val out = TLBundle(params.outer.bundle)
     // Way permissions
@@ -34,7 +34,7 @@ class Scheduler(params: InclusiveCacheParameters) extends Module
     // Control port
     val req = Flipped(Decoupled(new SinkXRequest(params)))
     val resp = Decoupled(new SourceXRequest(params))
-  }
+  })
 
   val sourceA = Module(new SourceA(params))
   val sourceB = Module(new SourceB(params))

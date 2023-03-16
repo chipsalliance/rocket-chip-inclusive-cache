@@ -35,13 +35,13 @@ class ListBufferPush[T <: Data](params: ListBufferParameters[T]) extends Bundle
 
 class ListBuffer[T <: Data](params: ListBufferParameters[T]) extends Module
 {
-  val io = new Bundle {
+  val io = IO(new Bundle {
     // push is visible on the same cycle; flow queues
     val push  = Flipped(Decoupled(new ListBufferPush(params)))
     val valid = UInt(params.queues.W)
     val pop   = Flipped(Valid(UInt(params.queueBits.W)))
     val data  = Output(params.gen)
-  }
+  })
 
   val valid = RegInit(0.U(params.queues.W))
   val head  = Mem(params.queues, UInt(params.entryBits.W))

@@ -33,7 +33,7 @@ class SinkDResponse(params: InclusiveCacheParameters) extends InclusiveCacheBund
 
 class SinkD(params: InclusiveCacheParameters) extends Module
 {
-  val io = new Bundle {
+  val io = IO(new Bundle {
     val resp = Valid(new SinkDResponse(params)) // Grant or ReleaseAck
     val d = Flipped(Decoupled(new TLBundleD(params.outer.bundle)))
     // Lookup the set+way from MSHRs
@@ -46,7 +46,7 @@ class SinkD(params: InclusiveCacheParameters) extends Module
     // WaR hazard
     val grant_req = new SourceDHazard(params)
     val grant_safe = Flipped(Bool())
-  }
+  })
 
   // No restrictions on buffer
   val d = params.micro.outerBuf.d(io.d)

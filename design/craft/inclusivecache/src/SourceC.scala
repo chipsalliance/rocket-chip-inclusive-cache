@@ -34,7 +34,7 @@ class SourceCRequest(params: InclusiveCacheParameters) extends InclusiveCacheBun
 
 class SourceC(params: InclusiveCacheParameters) extends Module
 {
-  val io = new Bundle {
+  val io = IO(new Bundle {
     val req = Flipped(Decoupled(new SourceCRequest(params)))
     val c = Decoupled(new TLBundleC(params.outer.bundle))
     // BankedStore port
@@ -43,7 +43,7 @@ class SourceC(params: InclusiveCacheParameters) extends Module
     // RaW hazard
     val evict_req = new SourceDHazard(params)
     val evict_safe = Flipped(Bool())
-  }
+  })
 
   // We ignore the depth and pipe is useless here (we have to provision for worst-case=stall)
   require (!params.micro.outerBuf.c.pipe)

@@ -28,10 +28,10 @@ class SinkEResponse(params: InclusiveCacheParameters) extends InclusiveCacheBund
 
 class SinkE(params: InclusiveCacheParameters) extends Module
 {
-  val io = new Bundle {
+  val io = IO(new Bundle {
     val resp = Valid(new SinkEResponse(params))
     val e = Flipped(Decoupled(new TLBundleE(params.inner.bundle)))
-  }
+  })
 
   if (params.firstLevel) {
     // Tie off unused ports

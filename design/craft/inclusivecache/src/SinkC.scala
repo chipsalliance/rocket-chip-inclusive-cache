@@ -40,7 +40,7 @@ class PutBufferCEntry(params: InclusiveCacheParameters) extends InclusiveCacheBu
 
 class SinkC(params: InclusiveCacheParameters) extends Module
 {
-  val io = new Bundle {
+  val io = IO(new Bundle {
     val req = Decoupled(new FullRequest(params)) // Release
     val resp = Valid(new SinkCResponse(params)) // ProbeAck
     val c = Flipped(Decoupled(new TLBundleC(params.inner.bundle)))
@@ -53,7 +53,7 @@ class SinkC(params: InclusiveCacheParameters) extends Module
     // SourceD sideband
     val rel_pop  = Flipped(Decoupled(new PutBufferPop(params)))
     val rel_beat = new PutBufferCEntry(params)
-  }
+  })
 
   if (params.firstLevel) {
     // Tie off unused ports
