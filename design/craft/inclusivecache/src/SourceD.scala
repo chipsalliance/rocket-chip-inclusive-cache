@@ -47,7 +47,7 @@ class PutBufferACEntry(params: InclusiveCacheParameters) extends InclusiveCacheB
 
 class SourceD(params: InclusiveCacheParameters) extends Module
 {
-  val io = new Bundle {
+  val io = IO(new Bundle {
     val req = Flipped(Decoupled(new SourceDRequest(params)))
     val d = Decoupled(new TLBundleD(params.inner.bundle))
     // Put data from SinkA
@@ -66,7 +66,7 @@ class SourceD(params: InclusiveCacheParameters) extends Module
     val evict_safe = Bool()
     val grant_req  = Flipped(new SourceDHazard(params))
     val grant_safe = Bool()
-  }
+  })
 
   val beatBytes = params.inner.manager.beatBytes
   val writeBytes = params.micro.writeBytes

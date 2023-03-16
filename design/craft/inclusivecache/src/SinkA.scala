@@ -37,13 +37,13 @@ class PutBufferPop(params: InclusiveCacheParameters) extends InclusiveCacheBundl
 
 class SinkA(params: InclusiveCacheParameters) extends Module
 {
-  val io = new Bundle {
+  val io = IO(new Bundle {
     val req = Decoupled(new FullRequest(params))
     val a = Flipped(Decoupled(new TLBundleA(params.inner.bundle)))
     // for use by SourceD:
     val pb_pop  = Flipped(Decoupled(new PutBufferPop(params)))
     val pb_beat = new PutBufferAEntry(params)
-  }
+  })
 
   // No restrictions on the type of buffer
   val a = params.micro.innerBuf.a(io.a)

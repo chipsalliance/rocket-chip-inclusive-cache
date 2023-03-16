@@ -58,7 +58,7 @@ class BankedStoreOuterDecoded(params: InclusiveCacheParameters) extends BankedSt
 
 class BankedStore(params: InclusiveCacheParameters) extends Module
 {
-  val io = new Bundle {
+  val io = IO(new Bundle {
     val sinkC_adr = Flipped(Decoupled(new BankedStoreInnerAddress(params)))
     val sinkC_dat = Flipped(new BankedStoreInnerPoison(params))
     val sinkD_adr = Flipped(Decoupled(new BankedStoreOuterAddress(params)))
@@ -69,7 +69,7 @@ class BankedStore(params: InclusiveCacheParameters) extends Module
     val sourceD_rdat = new BankedStoreInnerDecoded(params)
     val sourceD_wadr = Flipped(Decoupled(new BankedStoreInnerAddress(params)))
     val sourceD_wdat = Flipped(new BankedStoreInnerPoison(params))
-  }
+  })
 
   val innerBytes = params.inner.manager.beatBytes
   val outerBytes = params.outer.manager.beatBytes

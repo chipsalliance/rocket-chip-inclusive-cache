@@ -28,10 +28,10 @@ class SourceXRequest(params: InclusiveCacheParameters) extends InclusiveCacheBun
 
 class SourceX(params: InclusiveCacheParameters) extends Module
 {
-  val io = new Bundle {
+  val io = IO(new Bundle {
     val req = Flipped(Decoupled(new SourceXRequest(params)))
     val x = Decoupled(new SourceXRequest(params))
-  }
+  })
 
   val x = Wire(io.x) // ready must not depend on valid
   io.x <> Queue(x, 1)

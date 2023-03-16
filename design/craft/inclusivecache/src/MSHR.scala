@@ -82,7 +82,7 @@ case object S_TRUNK_CD extends CacheState
 
 class MSHR(params: InclusiveCacheParameters) extends Module
 {
-  val io = new Bundle {
+  val io = IO(new Bundle {
     val allocate  = Flipped(Valid(new AllocateRequest(params))) // refills MSHR for next cycle
     val directory = Flipped(Valid(new DirectoryResult(params))) // triggers schedule setup
     val status    = Valid(new MSHRStatus(params))
@@ -91,7 +91,7 @@ class MSHR(params: InclusiveCacheParameters) extends Module
     val sinkd     = Flipped(Valid(new SinkDResponse(params)))
     val sinke     = Flipped(Valid(new SinkEResponse(params)))
     val nestedwb  = Flipped(new NestedWriteback(params))
-  }
+  })
 
   val request_valid = RegInit(false.B)
   val request = Reg(new FullRequest(params))

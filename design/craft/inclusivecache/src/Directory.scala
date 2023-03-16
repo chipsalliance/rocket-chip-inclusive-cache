@@ -54,12 +54,12 @@ class DirectoryResult(params: InclusiveCacheParameters) extends DirectoryEntry(p
 
 class Directory(params: InclusiveCacheParameters) extends Module
 {
-  val io = new Bundle {
+  val io = IO(new Bundle {
     val write  = Flipped(Decoupled(new DirectoryWrite(params)))
     val read   = Flipped(Valid(new DirectoryRead(params))) // sees same-cycle write
     val result = Valid(new DirectoryResult(params))
     val ready  = Bool() // reset complete; can enable access
-  }
+  })
 
   val codeBits = new DirectoryEntry(params).getWidth
 

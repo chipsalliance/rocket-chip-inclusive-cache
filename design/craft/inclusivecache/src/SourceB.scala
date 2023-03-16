@@ -32,10 +32,10 @@ class SourceBRequest(params: InclusiveCacheParameters) extends InclusiveCacheBun
 
 class SourceB(params: InclusiveCacheParameters) extends Module
 {
-  val io = new Bundle {
+  val io = IO(new Bundle {
     val req = Flipped(Decoupled(new SourceBRequest(params)))
     val b = Decoupled(new TLBundleB(params.inner.bundle))
-  }
+  })
 
   if (params.firstLevel) {
     // Tie off unused ports
