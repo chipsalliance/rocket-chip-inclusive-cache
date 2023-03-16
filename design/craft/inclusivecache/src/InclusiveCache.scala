@@ -184,7 +184,7 @@ class InclusiveCache(
       }
 
       val params = InclusiveCacheParameters(cache, micro, control.isDefined, edgeIn, edgeOut)
-      val scheduler = Module(new Scheduler(params))
+      val scheduler = Module(new InclusiveCacheBankScheduler(params)).suggestName("inclusive_cache_bank_sched")
 
       scheduler.io.in <> in
       out <> scheduler.io.out

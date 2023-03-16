@@ -22,7 +22,7 @@ import freechips.rocketchip.diplomacy.AddressSet
 import freechips.rocketchip.tilelink._
 import freechips.rocketchip.util._
 
-class Scheduler(params: InclusiveCacheParameters) extends Module
+class InclusiveCacheBankScheduler(params: InclusiveCacheParameters) extends Module
 {
   val io = new Bundle {
     val in = TLBundle(params.inner.bundle).flip
