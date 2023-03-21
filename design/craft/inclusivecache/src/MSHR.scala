@@ -19,7 +19,7 @@ package sifive.blocks.inclusivecache
 
 import chisel3._
 import chisel3.util._
-import chisel3.experimental.SourceInfo
+import chisel3.internal.sourceinfo.SourceInfo
 import freechips.rocketchip.tilelink._
 import TLPermissions._
 import TLMessages._
