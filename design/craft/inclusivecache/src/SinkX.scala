@@ -50,4 +50,5 @@ class SinkX(params: InclusiveCacheParameters) extends Module
   io.req.bits.offset := 0.U
   io.req.bits.set    := set
   io.req.bits.tag    := tag
+  io.req.bits.put    := 0.U
 }

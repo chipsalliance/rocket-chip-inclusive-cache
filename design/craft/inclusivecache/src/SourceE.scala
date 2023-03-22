@@ -36,7 +36,7 @@ class SourceE(params: InclusiveCacheParameters) extends Module
   // ready must be a register, because we derive valid from ready
   require (!params.micro.outerBuf.e.pipe && params.micro.outerBuf.e.isDefined)
 
-  val e = Wire(io.e)
+  val e = Wire(chiselTypeOf(io.e))
   io.e <> params.micro.outerBuf.e(e)
 
   io.req.ready := e.ready

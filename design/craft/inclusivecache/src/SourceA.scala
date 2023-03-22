@@ -40,7 +40,7 @@ class SourceA(params: InclusiveCacheParameters) extends Module
   // ready must be a register, because we derive valid from ready
   require (!params.micro.outerBuf.a.pipe && params.micro.outerBuf.a.isDefined)
 
-  val a = Wire(io.a)
+  val a = Wire(chiselTypeOf(io.a))
   io.a <> params.micro.outerBuf.a(a)
 
   io.req.ready := a.ready
@@ -54,4 +54,5 @@ class SourceA(params: InclusiveCacheParameters) extends Module
   a.bits.address := params.expandAddress(io.req.bits.tag, io.req.bits.set, 0.U)
   a.bits.mask    := ~0.U(params.outer.manager.beatBytes.W)
   a.bits.data    := 0.U
+  a.bits.corrupt := false.B
 }
