@@ -33,7 +33,7 @@ class SourceX(params: InclusiveCacheParameters) extends Module
     val x = Decoupled(new SourceXRequest(params))
   })
 
-  val x = Wire(io.x) // ready must not depend on valid
+  val x = Wire(chiselTypeOf(io.x)) // ready must not depend on valid
   io.x <> Queue(x, 1)
 
   io.req.ready := x.ready

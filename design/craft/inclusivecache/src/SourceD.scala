@@ -117,7 +117,7 @@ class SourceD(params: InclusiveCacheParameters) extends Module
   params.ccover(io.bs_radr.valid && !io.bs_radr.ready, "SOURCED_1_READ_STALL", "Data readout stalled")
 
   // Make a queue to catch BS readout during stalls
-  val queue = Module(new Queue(io.bs_rdat, 3, flow=true))
+  val queue = Module(new Queue(chiselTypeOf(io.bs_rdat), 3, flow=true))
   queue.io.enq.valid := RegNext(RegNext(io.bs_radr.fire))
   queue.io.enq.bits := io.bs_rdat
   assert (!queue.io.enq.valid || queue.io.enq.ready)
@@ -215,7 +215,7 @@ class SourceD(params: InclusiveCacheParameters) extends Module
   val resp_opcode = VecInit(Seq(AccessAck, AccessAck, AccessAckData, AccessAckData, AccessAckData, HintAck, grant, Grant))
 
   // No restrictions on the type of buffer used here
-  val d = Wire(io.d)
+  val d = Wire(chiselTypeOf(io.d))
   io.d <> params.micro.innerBuf.d(d)
 
   d.valid := s3_valid_d
@@ -264,6 +264,7 @@ class SourceD(params: InclusiveCacheParameters) extends Module
   atomics.io.a.address := 0.U
   atomics.io.a.mask    := s4_pdata.mask
   atomics.io.a.data    := s4_pdata.data
+  atomics.io.a.corrupt := DontCare
   atomics.io.data_in   := s4_rdata
 
   io.bs_wadr.valid := s4_full && s4_need_bs
