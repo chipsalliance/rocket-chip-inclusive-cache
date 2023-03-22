@@ -51,7 +51,7 @@ class SourceC(params: InclusiveCacheParameters) extends Module
   val beatBytes = params.outer.manager.beatBytes
   val beats = params.cache.blockBytes / beatBytes
   val flow = params.micro.outerBuf.c.flow
-  val queue = Module(new Queue(io.c.bits, beats + 3 + (if (flow) 0 else 1), flow = flow))
+  val queue = Module(new Queue(chiselTypeOf(io.c.bits), beats + 3 + (if (flow) 0 else 1), flow = flow))
 
   // queue.io.count is far too slow
   val fillBits = log2Up(beats + 4)
@@ -102,7 +102,7 @@ class SourceC(params: InclusiveCacheParameters) extends Module
   val s3_beat = RegEnable(s2_beat, s3_latch)
   val s3_last = RegEnable(s2_last, s3_latch)
 
-  val c = Wire(io.c)
+  val c = Wire(chiselTypeOf(io.c))
   c.valid        := s3_valid
   c.bits.opcode  := s3_req.opcode
   c.bits.param   := s3_req.param

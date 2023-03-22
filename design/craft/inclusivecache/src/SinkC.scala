@@ -88,7 +88,7 @@ class SinkC(params: InclusiveCacheParameters) extends Module
 
     // Cut path from inner C to the BankedStore SRAM setup
     //   ... this makes it easier to layout the L2 data banks far away
-    val bs_adr = Wire(io.bs_adr)
+    val bs_adr = Wire(chiselTypeOf(io.bs_adr))
     io.bs_adr <> Queue(bs_adr, 1, pipe=true)
     io.bs_dat.data   := RegEnable(c.bits.data,    bs_adr.fire)
     bs_adr.valid     := resp && (!first || (c.valid && hasData))

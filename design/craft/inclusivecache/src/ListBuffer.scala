@@ -53,10 +53,10 @@ class ListBuffer[T <: Data](params: ListBufferParameters[T]) extends Module
   val freeOH = ~(leftOR(~used) << 1) & ~used
   val freeIdx = OHToUInt(freeOH)
 
-  val valid_set = Wire(0.U(params.queues.W))
-  val valid_clr = Wire(0.U(params.queues.W))
-  val used_set  = Wire(0.U(params.entries.W))
-  val used_clr  = Wire(0.U(params.entries.W))
+  val valid_set = WireDefault(0.U(params.queues.W))
+  val valid_clr = WireDefault(0.U(params.queues.W))
+  val used_set  = WireDefault(0.U(params.entries.W))
+  val used_clr  = WireDefault(0.U(params.entries.W))
 
   val push_tail = tail.read(io.push.bits.index)
   val push_valid = valid(io.push.bits.index)
