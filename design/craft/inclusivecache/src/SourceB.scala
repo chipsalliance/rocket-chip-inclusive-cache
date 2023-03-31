@@ -41,6 +41,7 @@ class SourceB(params: InclusiveCacheParameters) extends Module
     // Tie off unused ports
     io.req.ready := true.B
     io.b.valid := false.B
+    io.b.bits := DontCare
   } else {
     val remain = RegInit(0.U(params.clientBits.W))
     val remain_set = WireInit(init = 0.U(params.clientBits.W))
