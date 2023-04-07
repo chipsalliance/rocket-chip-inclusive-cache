@@ -187,6 +187,8 @@ class InclusiveCache(
 
       scheduler.io.in <> in
       out <> scheduler.io.out
+      scheduler.io.ways := DontCare
+      scheduler.io.divs := DontCare
 
       val flushSelect = edgeIn.manager.managers.flatMap(_.address).map(_.contains(flushInAddress)).reduce(_||_)
       when (flushSelect) { flushNoMatch := false.B }

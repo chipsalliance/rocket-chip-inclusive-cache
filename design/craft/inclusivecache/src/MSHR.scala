@@ -19,12 +19,13 @@ package sifive.blocks.inclusivecache
 
 import chisel3._
 import chisel3.util._
-import chisel3.experimental.SourceInfo
+import chisel3.internal.sourceinfo.SourceInfo
 import freechips.rocketchip.tilelink._
 import TLPermissions._
 import TLMessages._
 import MetaData._
 import chisel3.PrintableHelper
+import chisel3.experimental.dataview.BundleUpcastable
 
 class ScheduleRequest(params: InclusiveCacheParameters) extends InclusiveCacheBundle(params)
 {
@@ -293,9 +294,9 @@ class MSHR(params: InclusiveCacheParameters) extends Module
   io.schedule.bits.c.bits.set     := request.set
   io.schedule.bits.c.bits.way     := meta.way
   io.schedule.bits.c.bits.dirty   := meta.dirty
-  io.schedule.bits.d.bits         := request
+  io.schedule.bits.d.bits.viewAsSupertype(chiselTypeOf(request)) := request
   io.schedule.bits.d.bits.param   := Mux(!req_acquire, request.param,
-                                       MuxLookup(request.param, Wire(request.param), Seq(
+                                       MuxLookup(request.param, request.param, Seq(
                                          NtoB -> Mux(req_promoteT, NtoT, NtoB),
                                          BtoT -> Mux(honour_BtoT,  BtoT, NtoT),
                                          NtoT -> NtoT)))
@@ -310,7 +311,7 @@ class MSHR(params: InclusiveCacheParameters) extends Module
 
   // Coverage of state transitions
   def cacheState(entry: DirectoryEntry, hit: Bool) = {
-    val out = Wire(UInt())
+    val out = WireDefault(0.U)
     val c = entry.clients.orR
     val d = entry.dirty
     switch (entry.state) {

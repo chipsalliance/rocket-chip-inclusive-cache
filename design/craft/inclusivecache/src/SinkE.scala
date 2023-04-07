@@ -36,6 +36,7 @@ class SinkE(params: InclusiveCacheParameters) extends Module
   if (params.firstLevel) {
     // Tie off unused ports
     io.resp.valid := false.B
+    io.resp.bits := DontCare
     io.e.ready := true.B
   } else {
     // No restrictions on buffer

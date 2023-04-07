@@ -58,11 +58,16 @@ class SinkC(params: InclusiveCacheParameters) extends Module
   if (params.firstLevel) {
     // Tie off unused ports
     io.req.valid := false.B
+    io.req.bits := DontCare
     io.resp.valid := false.B
+    io.resp.bits := DontCare
     io.c.ready := true.B
     io.set := 0.U
     io.bs_adr.valid := false.B
+    io.bs_adr.bits := DontCare
+    io.bs_dat := DontCare
     io.rel_pop.ready := true.B
+    io.rel_beat := DontCare
   } else {
     // No restrictions on the type of buffer
     val c = params.micro.innerBuf.c(io.c)
@@ -88,7 +93,7 @@ class SinkC(params: InclusiveCacheParameters) extends Module
 
     // Cut path from inner C to the BankedStore SRAM setup
     //   ... this makes it easier to layout the L2 data banks far away
-    val bs_adr = Wire(io.bs_adr)
+    val bs_adr = Wire(chiselTypeOf(io.bs_adr))
     io.bs_adr <> Queue(bs_adr, 1, pipe=true)
     io.bs_dat.data   := RegEnable(c.bits.data,    bs_adr.fire)
     bs_adr.valid     := resp && (!first || (c.valid && hasData))

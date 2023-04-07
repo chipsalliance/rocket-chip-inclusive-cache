@@ -18,6 +18,7 @@
 package sifive.blocks.inclusivecache
 
 import chisel3._
+import chisel3.experimental.dataview.BundleUpcastable
 import chisel3.util._
 import freechips.rocketchip.diplomacy.AddressSet
 import freechips.rocketchip.tilelink._
@@ -131,13 +132,22 @@ class InclusiveCacheBankScheduler(params: InclusiveCacheParameters) extends Modu
   schedule.c.bits.source := Mux(schedule.c.bits.opcode(1), mshr_select, 0.U) // only set for Release[Data] not ProbeAck[Data]
   schedule.d.bits.sink   := mshr_select
 
-  sourceA.io.req := schedule.a
-  sourceB.io.req := schedule.b
-  sourceC.io.req := schedule.c
-  sourceD.io.req := schedule.d
-  sourceE.io.req := schedule.e
-  sourceX.io.req := schedule.x
-  directory.io.write := schedule.dir
+  sourceA.io.req.valid := schedule.a.valid
+  sourceB.io.req.valid := schedule.b.valid
+  sourceC.io.req.valid := schedule.c.valid
+  sourceD.io.req.valid := schedule.d.valid
+  sourceE.io.req.valid := schedule.e.valid
+  sourceX.io.req.valid := schedule.x.valid
+
+  sourceA.io.req.bits.viewAsSupertype(chiselTypeOf(schedule.a.bits)) := schedule.a.bits
+  sourceB.io.req.bits.viewAsSupertype(chiselTypeOf(schedule.b.bits)) := schedule.b.bits
+  sourceC.io.req.bits.viewAsSupertype(chiselTypeOf(schedule.c.bits)) := schedule.c.bits
+  sourceD.io.req.bits.viewAsSupertype(chiselTypeOf(schedule.d.bits)) := schedule.d.bits
+  sourceE.io.req.bits.viewAsSupertype(chiselTypeOf(schedule.e.bits)) := schedule.e.bits
+  sourceX.io.req.bits.viewAsSupertype(chiselTypeOf(schedule.x.bits)) := schedule.x.bits
+
+  directory.io.write.valid := schedule.dir.valid
+  directory.io.write.bits.viewAsSupertype(chiselTypeOf(schedule.dir.bits)) := schedule.dir.bits
 
   // Forward meta-data changes from nested transaction completion
   val select_c  = mshr_selectOH(params.mshrs-1)
@@ -220,7 +230,7 @@ class InclusiveCacheBankScheduler(params: InclusiveCacheParameters) extends Modu
     val may_pop = a_pop || b_pop || c_pop
     val bypass = request.valid && queue && bypassMatches
     val will_reload = m.io.schedule.bits.reload && (may_pop || bypass)
-    m.io.allocate.bits := Mux(bypass, WireInit(new QueuedRequest(params), init = request.bits), requests.io.data)
+    m.io.allocate.bits.viewAsSupertype(chiselTypeOf(requests.io.data)) := Mux(bypass, WireInit(new QueuedRequest(params), init = request.bits), requests.io.data)
     m.io.allocate.bits.set := m.io.status.bits.set
     m.io.allocate.bits.repeat := m.io.allocate.bits.tag === m.io.status.bits.tag
     m.io.allocate.valid := sel && will_reload
@@ -269,14 +279,14 @@ class InclusiveCacheBankScheduler(params: InclusiveCacheParameters) extends Modu
   (mshr_insertOH.asBools zip mshrs) map { case (s, m) =>
     when (request.valid && alloc && s && !mshr_uses_directory_assuming_no_bypass) {
       m.io.allocate.valid := true.B
-      m.io.allocate.bits := request.bits
+      m.io.allocate.bits.viewAsSupertype(chiselTypeOf(request.bits)) := request.bits
       m.io.allocate.bits.repeat := false.B
     }
   }
 
   when (request.valid && nestB && !bc_mshr.io.status.valid && !c_mshr.io.status.valid && !mshr_uses_directory_assuming_no_bypass) {
     bc_mshr.io.allocate.valid := true.B
-    bc_mshr.io.allocate.bits := request.bits
+    bc_mshr.io.allocate.bits.viewAsSupertype(chiselTypeOf(request.bits)) := request.bits
     bc_mshr.io.allocate.bits.repeat := false.B
     assert (!request.bits.prio(0))
   }
@@ -284,7 +294,7 @@ class InclusiveCacheBankScheduler(params: InclusiveCacheParameters) extends Modu
 
   when (request.valid && nestC && !c_mshr.io.status.valid && !mshr_uses_directory_assuming_no_bypass) {
     c_mshr.io.allocate.valid := true.B
-    c_mshr.io.allocate.bits := request.bits
+    c_mshr.io.allocate.bits.viewAsSupertype(chiselTypeOf(request.bits)) := request.bits
     c_mshr.io.allocate.bits.repeat := false.B
     assert (!request.bits.prio(0))
     assert (!request.bits.prio(1))

@@ -41,6 +41,7 @@ class SourceB(params: InclusiveCacheParameters) extends Module
     // Tie off unused ports
     io.req.ready := true.B
     io.b.valid := false.B
+    io.b.bits := DontCare
   } else {
     val remain = RegInit(0.U(params.clientBits.W))
     val remain_set = WireInit(init = 0.U(params.clientBits.W))
@@ -61,7 +62,7 @@ class SourceB(params: InclusiveCacheParameters) extends Module
     when (io.req.fire) { remain_set := io.req.bits.clients }
 
     // No restrictions on the type of buffer used here
-    val b = Wire(io.b)
+    val b = Wire(chiselTypeOf(io.b))
     io.b <> params.micro.innerBuf.b(b)
 
     b.valid := busy || io.req.valid
@@ -79,5 +80,6 @@ class SourceB(params: InclusiveCacheParameters) extends Module
     b.bits.address := params.expandAddress(tag, set, 0.U)
     b.bits.mask    := ~0.U(params.inner.manager.beatBytes.W)
     b.bits.data    := 0.U
+    b.bits.corrupt := false.B
   }
 }
