@@ -65,7 +65,7 @@ class SourceC(params: InclusiveCacheParameters) extends Module
 
   val busy = RegInit(false.B)
   val beat = RegInit(0.U(params.outerBeatBits.W))
-  val last = beat.andR
+  val last = beat === (params.cache.blockBeats - 1).U
   val req  = Mux(!busy, io.req.bits, RegEnable(io.req.bits, !busy && io.req.valid))
   val want_data = busy || (io.req.valid && room && io.req.bits.dirty)
 
@@ -86,8 +86,11 @@ class SourceC(params: InclusiveCacheParameters) extends Module
 
   when (io.req.valid && room && io.req.bits.dirty) { busy := true.B }
   when (io.bs_adr.fire) {
-    when (last) { busy := false.B }
     beat := beat + 1.U
+    when (last) {
+      busy := false.B
+      beat := 0.U
+    }
   }
 
   val s2_latch = Mux(want_data, io.bs_adr.fire, io.req.fire)
