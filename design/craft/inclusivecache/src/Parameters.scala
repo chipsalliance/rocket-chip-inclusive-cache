@@ -188,8 +188,8 @@ case class InclusiveCacheParameters(
   require (tagBits > 0)
   require (offsetBits > 0)
 
-  val innerBeatBits = offsetBits - log2Ceil(inner.manager.beatBytes)
-  val outerBeatBits = offsetBits - log2Ceil(outer.manager.beatBytes)
+  val innerBeatBits = (offsetBits - log2Ceil(inner.manager.beatBytes)) max 1
+  val outerBeatBits = (offsetBits - log2Ceil(outer.manager.beatBytes)) max 1
   val innerMaskBits = inner.manager.beatBytes / micro.writeBytes
   val outerMaskBits = outer.manager.beatBytes / micro.writeBytes
 

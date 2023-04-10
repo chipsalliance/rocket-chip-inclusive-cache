@@ -123,7 +123,7 @@ class BankedStore(params: InclusiveCacheParameters) extends Module
       val data = d((i + 1) * 8 * params.micro.writeBytes - 1, i * 8 * params.micro.writeBytes)
       data
     }
-    val a = Cat(b.bits.way, b.bits.set, b.bits.beat)
+    val a = if (params.cache.blockBytes == beatBytes) Cat(b.bits.way, b.bits.set) else Cat(b.bits.way, b.bits.set, b.bits.beat)
     val m = b.bits.mask
     val out = Wire(new Request)
 
