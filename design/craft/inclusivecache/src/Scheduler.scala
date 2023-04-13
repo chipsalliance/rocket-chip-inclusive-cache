@@ -303,7 +303,7 @@ class InclusiveCacheBankScheduler(params: InclusiveCacheParameters) extends Modu
   c_mshr.io.allocate.bits.prio(1) := false.B
 
   // Fanout the result of the Directory lookup
-  val dirTarget = Mux(alloc, mshr_insertOH, Mux(nestB,(1 << (params.mshrs-2)).U,(1 << (params.mshrs-1)).U))
+  val dirTarget = Mux(alloc, mshr_insertOH, Mux(nestB,(BigInt(1) << (params.mshrs-2)).U,(BigInt(1) << (params.mshrs-1)).U))
   val directoryFanout = params.dirReg(RegNext(Mux(mshr_uses_directory, mshr_selectOH, Mux(alloc_uses_directory, dirTarget, 0.U))))
   mshrs.zipWithIndex.foreach { case (m, i) =>
     m.io.directory.valid := directoryFanout(i)
