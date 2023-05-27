@@ -34,6 +34,7 @@ case class InclusiveCacheParams(
   memCycles: Int,  // # of L2 clock cycles for a memory round-trip (50ns @ 800MHz)
   physicalFilter: Option[PhysicalFilterParams] = None,
   hintsSkipProbe: Boolean = false, // do hints probe the same client
+  bankedControl: Boolean = false, // bank the cache ctrl with the cache banks
   // Interior/Exterior refer to placement either inside the Scheduler or outside it
   // Inner/Outer refer to buffers on the front (towards cores) or back (towards DDR) of the L2
   bufInnerInterior: InclusiveCachePortParameters = InclusiveCachePortParameters.fullC,
@@ -48,14 +49,17 @@ class WithInclusiveCache(
   capacityKB: Int = 512,
   outerLatencyCycles: Int = 40,
   subBankingFactor: Int = 4,
-  hintsSkipProbe: Boolean = false
+  hintsSkipProbe: Boolean = false,
+  bankedControl: Boolean = false
 ) extends Config((site, here, up) => {
   case InclusiveCacheKey => InclusiveCacheParams(
       sets = (capacityKB * 1024)/(site(CacheBlockBytes) * nWays * up(BankedL2Key, site).nBanks),
       ways = nWays,
       memCycles = outerLatencyCycles,
       writeBytes = site(XLen)/8,
-      portFactor = subBankingFactor)
+      portFactor = subBankingFactor,
+      hintsSkipProbe = hintsSkipProbe,
+      bankedControl = bankedControl)
   case BankedL2Key => up(BankedL2Key, site).copy(coherenceManager = { context =>
     implicit val p = context.p
     val sbus = context.tlBusWrapperLocationMap(SBUS)
@@ -68,6 +72,7 @@ class WithInclusiveCache(
       memCycles,
       physicalFilter,
       hintsSkipProbe,
+      bankedControl,
       bufInnerInterior,
       bufInnerExterior,
       bufOuterInterior,
@@ -89,7 +94,9 @@ class WithInclusiveCache(
         outerBuf = bufOuterInterior),
       Some(InclusiveCacheControlParameters(
         address = InclusiveCacheParameters.L2ControlAddress,
-        beatBytes = cbus.beatBytes))))
+        beatBytes = cbus.beatBytes,
+        bankedControl = bankedControl
+      ))))
 
     def skipMMIO(x: TLClientParameters) = {
       val dcacheMMIO =
@@ -124,7 +131,7 @@ class WithInclusiveCache(
       }
     }
 
-    l2.ctrl.foreach {
+    l2.ctrls.foreach {
       _.ctrlnode := cbus.coupleTo("l2_ctrl") { TLBuffer(1) := TLFragmenter(cbus) := _ }
     }
 

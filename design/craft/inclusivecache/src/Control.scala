@@ -29,7 +29,7 @@ import freechips.rocketchip.tilelink._
 
 class InclusiveCacheControl(outer: InclusiveCache, control: InclusiveCacheControlParameters)(implicit p: Parameters) extends LazyModule()(p) {
   val ctrlnode = TLRegisterNode(
-    address     = Seq(AddressSet(control.address, 0xfff)),
+    address     = Seq(AddressSet(control.address, InclusiveCacheParameters.L2ControlSize-1)),
     device      = outer.device,
     concurrency = 1, // Only one flush at a time (else need to track who answers)
     beatBytes   = control.beatBytes)

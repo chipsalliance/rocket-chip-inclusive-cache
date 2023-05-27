@@ -23,7 +23,7 @@ import chisel3.util._
 import org.chipsalliance.cde.config._
 import freechips.rocketchip.diplomacy._
 
-
+import freechips.rocketchip.subsystem.{BankedL2Key}
 import freechips.rocketchip.regmapper._
 import freechips.rocketchip.tilelink._
 
@@ -98,12 +98,16 @@ class InclusiveCache(
       minLatency = 2)
     })
 
-  val ctrl = control.map { c => LazyModule(new InclusiveCacheControl(this, c)) }
+  val ctrls = control.map { c =>
+    val nCtrls = if (c.bankedControl) p(BankedL2Key).nBanks else 1
+    Seq.tabulate(nCtrls) { i => LazyModule(new InclusiveCacheControl(this,
+      c.copy(address = c.address + i * InclusiveCacheParameters.L2ControlSize))) }
+  }.getOrElse(Nil)
 
   lazy val module = new Impl
   class Impl extends LazyModuleImp(this) {
     // If you have a control port, you must have at least one cache port
-    require (!ctrl.isDefined || !node.edges.in.isEmpty)
+    require (ctrls.isEmpty || !node.edges.in.isEmpty)
 
     // Extract the client IdRanges; must be the same on all ports!
     val clientIds = node.edges.in.headOption.map(_.client.clients.map(_.sourceId).sortBy(_.start))
@@ -129,7 +133,7 @@ class InclusiveCache(
           s"but ${m.name} only supports (${m.supportsAcquireT})!")
       }
 
-      val params = InclusiveCacheParameters(cache, micro, ctrl.isDefined, edgeIn, edgeOut)
+      val params = InclusiveCacheParameters(cache, micro, !ctrls.isEmpty, edgeIn, edgeOut)
       val scheduler = Module(new InclusiveCacheBankScheduler(params)).suggestName("inclusive_cache_bank_sched")
 
       scheduler.io.in <> in
@@ -146,11 +150,15 @@ class InclusiveCache(
       scheduler
     }
 
-    ctrl.map { ctrl =>
+    ctrls.foreach { ctrl =>
       ctrl.module.io.flush_req.ready := false.B
       ctrl.module.io.flush_resp := false.B
       ctrl.module.io.flush_match := false.B
-      mods.zip(node.edges.in).foreach { case (sched, edgeIn) =>
+    }
+
+    mods.zip(node.edges.in).zipWithIndex.foreach { case ((sched, edgeIn), i) =>
+      val ctrl = if (ctrls.size > 1) Some(ctrls(i)) else ctrls.headOption
+      ctrl.foreach { ctrl => {
         val contained = edgeIn.manager.managers.flatMap(_.address)
           .map(_.contains(ctrl.module.io.flush_req.bits)).reduce(_||_)
         when (contained) { ctrl.module.io.flush_match := true.B }
@@ -161,7 +169,7 @@ class InclusiveCache(
 
         when (sched.io.resp.valid) { ctrl.module.io.flush_resp := true.B }
         sched.io.resp.ready := true.B
-      }
+      }}
     }
 
     def json = s"""{"banks":[${mods.map(_.json).mkString(",")}]}"""
