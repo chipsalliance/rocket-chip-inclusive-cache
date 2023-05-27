@@ -124,8 +124,8 @@ class WithInclusiveCache(
       }
     }
 
-    l2.ctlnode.foreach {
-      _ := cbus.coupleTo("l2_ctrl") { TLBuffer(1) := TLFragmenter(cbus) := _ }
+    l2.ctrl.foreach {
+      _.ctrlnode := cbus.coupleTo("l2_ctrl") { TLBuffer(1) := TLFragmenter(cbus) := _ }
     }
 
     ElaborationArtefacts.add("l2.json", l2.module.json)
