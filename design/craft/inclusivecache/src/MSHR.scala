@@ -25,7 +25,7 @@ import TLPermissions._
 import TLMessages._
 import MetaData._
 import chisel3.PrintableHelper
-import chisel3.experimental.dataview.BundleUpcastable
+import chisel3.experimental.dataview.RecordUpcastable
 
 class ScheduleRequest(params: InclusiveCacheParameters) extends InclusiveCacheBundle(params)
 {
