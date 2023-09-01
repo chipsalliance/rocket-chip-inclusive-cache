@@ -141,6 +141,12 @@ class InclusiveCache(
       scheduler.io.ways := DontCare
       scheduler.io.divs := DontCare
 
+      // Tie down default values in case there is no controller
+      scheduler.io.req.valid := false.B
+      scheduler.io.req.bits.address := 0.U
+      scheduler.io.resp.ready := true.B
+
+
       // Fix-up the missing addresses. We do this here so that the Scheduler can be
       // deduplicated by Firrtl to make hierarchical place-and-route easier.
       out.a.bits.address := params.restoreAddress(scheduler.io.out.a.bits.address)
