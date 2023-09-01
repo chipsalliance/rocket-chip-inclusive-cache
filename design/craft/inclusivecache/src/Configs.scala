@@ -25,6 +25,7 @@ import freechips.rocketchip.tilelink._
 import sifive.blocks.inclusivecache._
 import freechips.rocketchip.devices.tilelink._
 import freechips.rocketchip.util._
+import sifive.blocks.inclusivecache.InclusiveCacheParameters
 
 case class InclusiveCacheParams(
   ways: Int,
@@ -35,7 +36,7 @@ case class InclusiveCacheParams(
   physicalFilter: Option[PhysicalFilterParams] = None,
   hintsSkipProbe: Boolean = false, // do hints probe the same client
   bankedControl: Boolean = false, // bank the cache ctrl with the cache banks
-  noFlush: Boolean = false, // disable flushing of the cache
+  ctrlAddr: Option[Int] = Some(InclusiveCacheParameters.L2ControlAddress),
   // Interior/Exterior refer to placement either inside the Scheduler or outside it
   // Inner/Outer refer to buffers on the front (towards cores) or back (towards DDR) of the L2
   bufInnerInterior: InclusiveCachePortParameters = InclusiveCachePortParameters.fullC,
@@ -52,7 +53,7 @@ class WithInclusiveCache(
   subBankingFactor: Int = 4,
   hintsSkipProbe: Boolean = false,
   bankedControl: Boolean = false,
-  noFlush: Boolean = false
+  ctrlAddr: Option[Int] = Some(InclusiveCacheParameters.L2ControlAddress)
 ) extends Config((site, here, up) => {
   case InclusiveCacheKey => InclusiveCacheParams(
       sets = (capacityKB * 1024)/(site(CacheBlockBytes) * nWays * up(BankedL2Key, site).nBanks),
@@ -62,7 +63,7 @@ class WithInclusiveCache(
       portFactor = subBankingFactor,
       hintsSkipProbe = hintsSkipProbe,
       bankedControl = bankedControl,
-      noFlush = noFlush)
+      ctrlAddr = ctrlAddr)
   case BankedL2Key => up(BankedL2Key, site).copy(coherenceManager = { context =>
     implicit val p = context.p
     val sbus = context.tlBusWrapperLocationMap(SBUS)
@@ -76,13 +77,13 @@ class WithInclusiveCache(
       physicalFilter,
       hintsSkipProbe,
       bankedControl,
-      noFlush,
+      ctrlAddr,
       bufInnerInterior,
       bufInnerExterior,
       bufOuterInterior,
       bufOuterExterior) = p(InclusiveCacheKey)
 
-    val l2Ctrl = if (noFlush) {
+    val l2Ctrl = if (!ctrlAddr.isDefined) {
       None 
     } else {
       Some(InclusiveCacheControlParameters(
