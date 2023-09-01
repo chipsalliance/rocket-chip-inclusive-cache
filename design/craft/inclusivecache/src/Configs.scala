@@ -25,6 +25,7 @@ import freechips.rocketchip.tilelink._
 import sifive.blocks.inclusivecache._
 import freechips.rocketchip.devices.tilelink._
 import freechips.rocketchip.util._
+import sifive.blocks.inclusivecache.InclusiveCacheParameters
 
 case class InclusiveCacheParams(
   ways: Int,
@@ -35,6 +36,7 @@ case class InclusiveCacheParams(
   physicalFilter: Option[PhysicalFilterParams] = None,
   hintsSkipProbe: Boolean = false, // do hints probe the same client
   bankedControl: Boolean = false, // bank the cache ctrl with the cache banks
+  ctrlAddr: Option[Int] = Some(InclusiveCacheParameters.L2ControlAddress),
   // Interior/Exterior refer to placement either inside the Scheduler or outside it
   // Inner/Outer refer to buffers on the front (towards cores) or back (towards DDR) of the L2
   bufInnerInterior: InclusiveCachePortParameters = InclusiveCachePortParameters.fullC,
@@ -50,7 +52,8 @@ class WithInclusiveCache(
   outerLatencyCycles: Int = 40,
   subBankingFactor: Int = 4,
   hintsSkipProbe: Boolean = false,
-  bankedControl: Boolean = false
+  bankedControl: Boolean = false,
+  ctrlAddr: Option[Int] = Some(InclusiveCacheParameters.L2ControlAddress)
 ) extends Config((site, here, up) => {
   case InclusiveCacheKey => InclusiveCacheParams(
       sets = (capacityKB * 1024)/(site(CacheBlockBytes) * nWays * up(BankedL2Key, site).nBanks),
@@ -59,7 +62,8 @@ class WithInclusiveCache(
       writeBytes = site(XLen)/8,
       portFactor = subBankingFactor,
       hintsSkipProbe = hintsSkipProbe,
-      bankedControl = bankedControl)
+      bankedControl = bankedControl,
+      ctrlAddr = ctrlAddr)
   case BankedL2Key => up(BankedL2Key, site).copy(coherenceManager = { context =>
     implicit val p = context.p
     val sbus = context.tlBusWrapperLocationMap(SBUS)
@@ -73,11 +77,18 @@ class WithInclusiveCache(
       physicalFilter,
       hintsSkipProbe,
       bankedControl,
+      ctrlAddr,
       bufInnerInterior,
       bufInnerExterior,
       bufOuterInterior,
       bufOuterExterior) = p(InclusiveCacheKey)
 
+    val l2Ctrl = ctrlAddr.map { addr =>
+      InclusiveCacheControlParameters(
+        address = addr,
+        beatBytes = cbus.beatBytes,
+        bankedControl = bankedControl)
+    }
     val l2 = LazyModule(new InclusiveCache(
       CacheParameters(
         level = 2,
@@ -92,11 +103,7 @@ class WithInclusiveCache(
         memCycles = memCycles,
         innerBuf = bufInnerInterior,
         outerBuf = bufOuterInterior),
-      Some(InclusiveCacheControlParameters(
-        address = InclusiveCacheParameters.L2ControlAddress,
-        beatBytes = cbus.beatBytes,
-        bankedControl = bankedControl
-      ))))
+      l2Ctrl))
 
     def skipMMIO(x: TLClientParameters) = {
       val dcacheMMIO =
