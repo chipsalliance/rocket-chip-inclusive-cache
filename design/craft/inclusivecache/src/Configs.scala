@@ -83,14 +83,11 @@ class WithInclusiveCache(
       bufOuterInterior,
       bufOuterExterior) = p(InclusiveCacheKey)
 
-    val l2Ctrl = if (!ctrlAddr.isDefined) {
-      None 
-    } else {
-      Some(InclusiveCacheControlParameters(
-        address = InclusiveCacheParameters.L2ControlAddress,
+    val l2Ctrl = ctrlAddr.map { addr =>
+      InclusiveCacheControlParameters(
+        address = addr,
         beatBytes = cbus.beatBytes,
-        bankedControl = bankedControl
-      ))
+        bankedControl = bankedControl)
     }
     val l2 = LazyModule(new InclusiveCache(
       CacheParameters(
