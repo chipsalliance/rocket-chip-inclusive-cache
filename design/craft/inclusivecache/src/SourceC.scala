@@ -65,7 +65,7 @@ class SourceC(params: InclusiveCacheParameters) extends Module
 
   val busy = RegInit(false.B)
   val beat = RegInit(0.U(params.outerBeatBits.W))
-  val last = beat === (params.cache.blockBeats - 1).U
+  val last = beat === ~(0.U(params.outerBeatBits.W))
   val req  = Mux(!busy, io.req.bits, RegEnable(io.req.bits, !busy && io.req.valid))
   val want_data = busy || (io.req.valid && room && io.req.bits.dirty)
 
