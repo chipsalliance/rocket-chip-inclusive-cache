@@ -23,7 +23,7 @@ import chisel3.util._
 import org.chipsalliance.cde.config._
 import freechips.rocketchip.diplomacy._
 
-import freechips.rocketchip.subsystem.{BankedL2Key}
+import freechips.rocketchip.subsystem.{SubsystemBankedCoherenceKey}
 import freechips.rocketchip.regmapper._
 import freechips.rocketchip.tilelink._
 
@@ -99,7 +99,7 @@ class InclusiveCache(
     })
 
   val ctrls = control.map { c =>
-    val nCtrls = if (c.bankedControl) p(BankedL2Key).nBanks else 1
+    val nCtrls = if (c.bankedControl) p(SubsystemBankedCoherenceKey).nBanks else 1
     Seq.tabulate(nCtrls) { i => LazyModule(new InclusiveCacheControl(this,
       c.copy(address = c.address + i * InclusiveCacheParameters.L2ControlSize))) }
   }.getOrElse(Nil)

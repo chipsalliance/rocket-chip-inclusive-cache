@@ -56,7 +56,7 @@ class WithInclusiveCache(
   ctrlAddr: Option[Int] = Some(InclusiveCacheParameters.L2ControlAddress)
 ) extends Config((site, here, up) => {
   case InclusiveCacheKey => InclusiveCacheParams(
-      sets = (capacityKB * 1024)/(site(CacheBlockBytes) * nWays * up(BankedL2Key, site).nBanks),
+      sets = (capacityKB * 1024)/(site(CacheBlockBytes) * nWays * up(SubsystemBankedCoherenceKey, site).nBanks),
       ways = nWays,
       memCycles = outerLatencyCycles,
       writeBytes = site(XLen)/8,
@@ -64,7 +64,7 @@ class WithInclusiveCache(
       hintsSkipProbe = hintsSkipProbe,
       bankedControl = bankedControl,
       ctrlAddr = ctrlAddr)
-  case BankedL2Key => up(BankedL2Key, site).copy(coherenceManager = { context =>
+  case SubsystemBankedCoherenceKey => up(SubsystemBankedCoherenceKey, site).copy(coherenceManager = { context =>
     implicit val p = context.p
     val sbus = context.tlBusWrapperLocationMap(SBUS)
     val cbus = context.tlBusWrapperLocationMap.lift(CBUS).getOrElse(sbus)
