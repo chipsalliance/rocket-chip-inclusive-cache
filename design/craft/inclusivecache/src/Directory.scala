@@ -23,7 +23,7 @@ import org.chipsalliance.cde.config._
 import freechips.rocketchip.diplomacy._
 import freechips.rocketchip.tilelink._
 import MetaData._
-import chisel3.experimental.dataview.BundleUpcastable
+import chisel3.experimental.dataview.RecordUpcastable
 import freechips.rocketchip.util.DescribedSRAM
 
 class DirectoryEntry(params: InclusiveCacheParameters) extends InclusiveCacheBundle(params)
