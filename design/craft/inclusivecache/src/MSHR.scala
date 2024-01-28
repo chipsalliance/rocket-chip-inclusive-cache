@@ -19,13 +19,13 @@ package sifive.blocks.inclusivecache
 
 import chisel3._
 import chisel3.util._
-import chisel3.internal.sourceinfo.SourceInfo
+import chisel3.experimental.SourceInfo
 import freechips.rocketchip.tilelink._
 import TLPermissions._
 import TLMessages._
 import MetaData._
 import chisel3.PrintableHelper
-import chisel3.experimental.dataview.BundleUpcastable
+import chisel3.experimental.dataview._
 
 class ScheduleRequest(params: InclusiveCacheParameters) extends InclusiveCacheBundle(params)
 {
@@ -237,7 +237,7 @@ class MSHR(params: InclusiveCacheParameters) extends Module
     final_meta_writeback.state := Mux(req_needT,
                                     Mux(req_acquire, TRUNK, TIP),
                                     Mux(!meta.hit, Mux(gotT, Mux(req_acquire, TRUNK, TIP), BRANCH),
-                                      MuxLookup(meta.state, 0.U(2.W), Seq(
+                                      MuxLookup(meta.state, 0.U(2.W))(Seq(
                                         INVALID -> BRANCH,
                                         BRANCH  -> BRANCH,
                                         TRUNK   -> TIP,
@@ -296,7 +296,7 @@ class MSHR(params: InclusiveCacheParameters) extends Module
   io.schedule.bits.c.bits.dirty   := meta.dirty
   io.schedule.bits.d.bits.viewAsSupertype(chiselTypeOf(request)) := request
   io.schedule.bits.d.bits.param   := Mux(!req_acquire, request.param,
-                                       MuxLookup(request.param, request.param, Seq(
+                                       MuxLookup(request.param, request.param)(Seq(
                                          NtoB -> Mux(req_promoteT, NtoT, NtoB),
                                          BtoT -> Mux(honour_BtoT,  BtoT, NtoT),
                                          NtoT -> NtoT)))

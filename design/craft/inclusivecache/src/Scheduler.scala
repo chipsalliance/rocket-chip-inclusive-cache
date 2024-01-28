@@ -18,11 +18,11 @@
 package sifive.blocks.inclusivecache
 
 import chisel3._
-import chisel3.experimental.dataview.BundleUpcastable
 import chisel3.util._
 import freechips.rocketchip.diplomacy.AddressSet
 import freechips.rocketchip.tilelink._
 import freechips.rocketchip.util._
+import chisel3.experimental.dataview._
 
 class InclusiveCacheBankScheduler(params: InclusiveCacheParameters) extends Module
 {
