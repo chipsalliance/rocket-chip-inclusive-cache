@@ -275,11 +275,20 @@ class InclusiveCacheBankScheduler(params: InclusiveCacheParameters) extends Modu
       OHToUInt(lowerMatches1 << params.mshrs*1),
       OHToUInt(lowerMatches1 << params.mshrs*2)))
 
-  val mshr_insertOH = ~(leftOR(~mshr_validOH) << 1) & ~mshr_validOH & prioFilter
+  val mshr_insertOH_prev = RegInit(0.U(params.mshrs.W));
+  val mshr_insertOH = Wire(UInt(params.mshrs.W))
+  val mshr_validOH_rr = mshr_validOH | rightOR(mshr_insertOH_prev);
+  val mshr_insertOH_rr = ~mshr_validOH_rr & (mshr_validOH_rr + 1.U) & prioFilter; // lowest index insertion starting from the previous insertOH position 
+  val mshr_insertOH_low = ~mshr_validOH & (mshr_validOH + 1.U) & prioFilter;  // default lowest index insertion - used to wrap the RR back to the beginning. 
+  // Only increment the insertOH if the previously computed insertion was filled, or the insertOH was not able to find anything. 
+  val cond_rr = (mshr_validOH & mshr_insertOH_prev).orR | ~(mshr_insertOH_prev.orR); 
+  val cond_reset = ~(mshr_insertOH_rr.orR); // Wrap back to the beginning if no higher index can be found. 
+  mshr_insertOH := Mux(cond_rr, Mux(cond_reset, mshr_insertOH_low, mshr_insertOH_rr), mshr_insertOH_prev); 
+  mshr_insertOH_prev := mshr_insertOH
   (mshr_insertOH.asBools zip mshrs) map { case (s, m) =>
     when (request.valid && alloc && s && !mshr_uses_directory_assuming_no_bypass) {
       m.io.allocate.valid := true.B
-      m.io.allocate.bits.viewAsSupertype(chiselTypeOf(request.bits)) := request.bits
+      m.io.allocate.bits := request.bits
       m.io.allocate.bits.repeat := false.B
     }
   }
