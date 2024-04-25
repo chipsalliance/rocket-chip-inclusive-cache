@@ -157,7 +157,7 @@ class SinkC(params: InclusiveCacheParameters) extends Module
     // Grant access to pop the data
     putbuffer.io.pop.bits := io.rel_pop.bits.index
     putbuffer.io.pop.valid := io.rel_pop.fire
-    io.rel_pop.ready := putbuffer.io.valid(io.rel_pop.bits.index)
+    io.rel_pop.ready := putbuffer.io.valid(io.rel_pop.bits.index(log2Ceil(params.relLists)-1,0))
     io.rel_beat := putbuffer.io.data
 
     when (io.rel_pop.fire && io.rel_pop.bits.last) {
