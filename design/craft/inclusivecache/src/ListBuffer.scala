@@ -35,6 +35,7 @@ class ListBufferPush[T <: Data](params: ListBufferParameters[T]) extends Bundle
 
 class ListBuffer[T <: Data](params: ListBufferParameters[T]) extends Module
 {
+  override def desiredName = s"ListBuffer_${params.gen.typeName}_q${params.queues}_e${params.entries}"
   val io = IO(new Bundle {
     // push is visible on the same cycle; flow queues
     val push  = Flipped(Decoupled(new ListBufferPush(params)))
