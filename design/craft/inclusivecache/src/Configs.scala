@@ -53,13 +53,14 @@ class WithInclusiveCache(
   subBankingFactor: Int = 4,
   hintsSkipProbe: Boolean = false,
   bankedControl: Boolean = false,
-  ctrlAddr: Option[Int] = Some(InclusiveCacheParameters.L2ControlAddress)
+  ctrlAddr: Option[Int] = Some(InclusiveCacheParameters.L2ControlAddress),
+  writeBytes: Int = 8
 ) extends Config((site, here, up) => {
   case InclusiveCacheKey => InclusiveCacheParams(
       sets = (capacityKB * 1024)/(site(CacheBlockBytes) * nWays * up(SubsystemBankedCoherenceKey, site).nBanks),
       ways = nWays,
       memCycles = outerLatencyCycles,
-      writeBytes = site(XLen)/8,
+      writeBytes = writeBytes,
       portFactor = subBankingFactor,
       hintsSkipProbe = hintsSkipProbe,
       bankedControl = bankedControl,
