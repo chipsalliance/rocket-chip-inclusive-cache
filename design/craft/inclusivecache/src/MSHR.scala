@@ -183,10 +183,10 @@ class MSHR(params: InclusiveCacheParameters) extends Module
   val no_wait = w_rprobeacklast && w_releaseack && w_grantlast && w_pprobeacklast && w_grantack
   io.schedule.bits.a.valid := !s_acquire && s_release && s_pprobe
   io.schedule.bits.b.valid := !s_rprobe || !s_pprobe
-  io.schedule.bits.c.valid := (!s_release && w_rprobeackfirst) || (!s_probeack && w_pprobeackfirst)
+  io.schedule.bits.c.valid := (!s_release && w_rprobeackfirst && !request.control(1)) || (!s_probeack && w_pprobeackfirst)
   io.schedule.bits.d.valid := !s_execute && w_pprobeack && w_grant
   io.schedule.bits.e.valid := !s_grantack && w_grantfirst
-  io.schedule.bits.x.valid := !s_flush && w_releaseack
+  io.schedule.bits.x.valid := (!s_flush && w_releaseack && !request.control(1)) || (!s_flush && s_release && request.control(1))
   io.schedule.bits.dir.valid := (!s_release && w_rprobeackfirst) || (!s_writeback && no_wait)
   io.schedule.bits.reload := no_wait
   io.schedule.valid := io.schedule.bits.a.valid || io.schedule.bits.b.valid || io.schedule.bits.c.valid ||
@@ -195,15 +195,16 @@ class MSHR(params: InclusiveCacheParameters) extends Module
 
   // Schedule completions
   when (io.schedule.ready) {
-                                    s_rprobe     := true.B
-    when (w_rprobeackfirst)       { s_release    := true.B }
-                                    s_pprobe     := true.B
-    when (s_release && s_pprobe)  { s_acquire    := true.B }
-    when (w_releaseack)           { s_flush      := true.B }
-    when (w_pprobeackfirst)       { s_probeack   := true.B }
-    when (w_grantfirst)           { s_grantack   := true.B }
-    when (w_pprobeack && w_grant) { s_execute    := true.B }
-    when (no_wait)                { s_writeback  := true.B }
+                                                 s_rprobe     := true.B
+    when (w_rprobeackfirst)                    { s_release    := true.B }
+                                                 s_pprobe     := true.B
+    when (s_release && s_pprobe)               { s_acquire    := true.B }
+    when (w_releaseack && !request.control(1)) { s_flush      := true.B }
+    when (s_release && request.control(1))     { s_flush      := true.B }
+    when (w_pprobeackfirst)                    { s_probeack   := true.B }
+    when (w_grantfirst)                        { s_grantack   := true.B }
+    when (w_pprobeack && w_grant)              { s_execute    := true.B }
+    when (no_wait)                             { s_writeback  := true.B }
     // Await the next operation
     when (no_wait) {
       request_valid := false.B
@@ -225,7 +226,7 @@ class MSHR(params: InclusiveCacheParameters) extends Module
     final_meta_writeback.state   := Mux(request.param =/= TtoT && meta.state === TRUNK, TIP, meta.state)
     final_meta_writeback.clients := meta.clients & ~Mux(isToN(request.param), req_clientBit, 0.U)
     final_meta_writeback.hit     := true.B // chained requests are hits
-  } .elsewhen (request.control && params.control.B) { // request.prio(0)
+  } .elsewhen (request.control(0) && params.control.B) { // request.prio(0)
     when (meta.hit) {
       final_meta_writeback.dirty   := false.B
       final_meta_writeback.state   := INVALID
@@ -584,13 +585,14 @@ class MSHR(params: InclusiveCacheParameters) extends Module
       }
       assert (new_meta.hit)
     }
-    // For X channel requests (ie: flush)
-    .elsewhen (new_request.control && params.control.B) { // new_request.prio(0)
+    // For X channel requests (ie: flush or invalidate)
+    .elsewhen (new_request.control(0) && params.control.B) { // new_request.prio(0)
       s_flush := false.B
       // Do we need to actually do something?
       when (new_meta.hit) {
         s_release := false.B
-        w_releaseack := false.B
+        // If flush request is an invalidate, don't writeback cache block. Just clear directory
+        w_releaseack := Mux(new_request.control(1), true.B, false.B)
         // Do we need to shoot-down inner caches?
         when ((!params.firstLevel).B && (new_meta.clients =/= 0.U)) {
           s_rprobe := false.B

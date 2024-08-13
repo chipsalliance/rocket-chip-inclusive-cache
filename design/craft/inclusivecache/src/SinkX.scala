@@ -23,6 +23,7 @@ import chisel3.util._
 class SinkXRequest(params: InclusiveCacheParameters) extends InclusiveCacheBundle(params)
 {
   val address = UInt(params.inner.bundle.addressBits.W)
+  val invalidate = Bool()
 }
 
 class SinkX(params: InclusiveCacheParameters) extends Module
@@ -40,7 +41,7 @@ class SinkX(params: InclusiveCacheParameters) extends Module
   params.ccover(x.valid && !x.ready, "SINKX_STALL", "Backpressure when accepting a control message")
 
   io.req.bits.prio   := VecInit(1.U(3.W).asBools) // same prio as A
-  io.req.bits.control:= true.B
+  io.req.bits.control:= Mux(x.bits.invalidate, VecInit(3.U(2.W).asBools), VecInit(1.U(2.W).asBools))
   io.req.bits.opcode := 0.U
   io.req.bits.param  := 0.U
   io.req.bits.size   := params.offsetBits.U

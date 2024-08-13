@@ -39,11 +39,13 @@ class InclusiveCacheControl(outer: InclusiveCache, control: InclusiveCacheContro
     val io = IO(new Bundle {
       val flush_match = Input(Bool())
       val flush_req = Decoupled(UInt(64.W))
+      val invalidate_req = Output(Bool()) // Don't release block to main memory, just clear from directory
       val flush_resp = Input(Bool())
     })
     // Flush directive
     val flushInValid   = RegInit(false.B)
     val flushInAddress = Reg(UInt(64.W))
+    val flushIsInvalidate = Reg(Bool())
     val flushOutValid  = RegInit(false.B)
     val flushOutReady  = WireInit(init = false.B)
 
@@ -52,6 +54,7 @@ class InclusiveCacheControl(outer: InclusiveCache, control: InclusiveCacheContro
     when (io.flush_req.ready) { flushInValid := false.B }
     io.flush_req.valid := flushInValid
     io.flush_req.bits := flushInAddress
+    io.invalidate_req := flushIsInvalidate
 
     when (!io.flush_match && flushInValid) {
       flushInValid := false.B
@@ -61,17 +64,42 @@ class InclusiveCacheControl(outer: InclusiveCache, control: InclusiveCacheContro
     val flush32 = RegField.w(32, RegWriteFn((ivalid, oready, data) => {
       when (oready) { flushOutReady := true.B }
       when (ivalid) { flushInValid := true.B }
-      when (ivalid && !flushInValid) { flushInAddress := data << 4 }
+      when (ivalid && !flushInValid) {
+        flushInAddress := data << 4
+        flushIsInvalidate := false.B
+      }
       (!flushInValid, flushOutValid)
     }), RegFieldDesc("Flush32", "Flush the physical address equal to the 32-bit written data << 4 from the cache"))
 
     val flush64 = RegField.w(64, RegWriteFn((ivalid, oready, data) => {
       when (oready) { flushOutReady := true.B }
       when (ivalid) { flushInValid := true.B }
-      when (ivalid && !flushInValid) { flushInAddress := data }
+      when (ivalid && !flushInValid) {
+        flushInAddress := data
+        flushIsInvalidate := false.B
+      }
       (!flushInValid, flushOutValid)
     }), RegFieldDesc("Flush64", "Flush the phsyical address equal to the 64-bit written data from the cache"))
 
+    val invalidate32 = RegField.w(32, RegWriteFn((ivalid, oready, data) => {
+      when (oready) { flushOutReady := true.B }
+      when (ivalid) { flushInValid := true.B }
+      when (ivalid && !flushInValid) {
+        flushInAddress := data << 4
+        flushIsInvalidate := true.B
+      }
+      (!flushInValid, flushOutValid)
+    }), RegFieldDesc("Invalidate32", "Invalidate the physical address equal to the 32-bit written data << 4 from the cache"))
+
+    val invalidate64 = RegField.w(64, RegWriteFn((ivalid, oready, data) => {
+      when (oready) { flushOutReady := true.B }
+      when (ivalid) { flushInValid := true.B }
+      when (ivalid && !flushInValid) {
+        flushInAddress := data
+        flushIsInvalidate := true.B
+      }
+      (!flushInValid, flushOutValid)
+    }), RegFieldDesc("Invalidate64", "Invalidate the phsyical address equal to the 64-bit written data from the cache"))
 
     // Information about the cache configuration
     val banksR  = RegField.r(8, outer.node.edges.in.size.U,         RegFieldDesc("Banks",
@@ -86,7 +114,9 @@ class InclusiveCacheControl(outer: InclusiveCache, control: InclusiveCacheContro
     val regmap = ctrlnode.regmap(
       0x000 -> RegFieldGroup("Config", Some("Information about the Cache Configuration"), Seq(banksR, waysR, lgSetsR, lgBlockBytesR)),
       0x200 -> (if (control.beatBytes >= 8) Seq(flush64) else Nil),
-      0x240 -> Seq(flush32)
+      0x240 -> Seq(flush32),
+      0x280 -> (if (control.beatBytes >= 8) Seq(invalidate64) else Nil),
+      0x2c0 -> Seq(invalidate32),
     )
   }
 }

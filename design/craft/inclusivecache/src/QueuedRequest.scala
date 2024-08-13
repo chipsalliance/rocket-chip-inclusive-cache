@@ -22,7 +22,7 @@ import chisel3._
 class QueuedRequest(params: InclusiveCacheParameters) extends InclusiveCacheBundle(params)
 {
   val prio   = Vec(3, Bool()) // A=001, B=010, C=100
-  val control= Bool() // control command
+  val control= Vec(2, Bool()) // control command (Flush=01, Invalidate=10)
   val opcode = UInt(3.W)
   val param  = UInt(3.W)
   val size   = UInt(params.inner.bundle.sizeBits.W)
