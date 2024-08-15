@@ -40,16 +40,17 @@ class SinkX(params: InclusiveCacheParameters) extends Module
   io.req.valid := x.valid
   params.ccover(x.valid && !x.ready, "SINKX_STALL", "Backpressure when accepting a control message")
 
-  io.req.bits.prio   := VecInit(1.U(3.W).asBools) // same prio as A
-  io.req.bits.control:= Mux(x.bits.invalidate, VecInit(3.U(2.W).asBools), VecInit(1.U(2.W).asBools))
-  io.req.bits.opcode := 0.U
-  io.req.bits.param  := 0.U
-  io.req.bits.size   := params.offsetBits.U
+  io.req.bits.prio               := VecInit(1.U(3.W).asBools) // same prio as A
+  io.req.bits.control.flush      := true.B
+  io.req.bits.control.invalidate := x.bits.invalidate
+  io.req.bits.opcode             := 0.U
+  io.req.bits.param              := 0.U
+  io.req.bits.size               := params.offsetBits.U
   // The source does not matter, because a flush command never allocates a way.
   // However, it must be a legal source, otherwise assertions might spuriously fire.
-  io.req.bits.source := params.inner.client.clients.map(_.sourceId.start).min.U
-  io.req.bits.offset := 0.U
-  io.req.bits.set    := set
-  io.req.bits.tag    := tag
-  io.req.bits.put    := 0.U
+  io.req.bits.source             := params.inner.client.clients.map(_.sourceId.start).min.U
+  io.req.bits.offset             := 0.U
+  io.req.bits.set                := set
+  io.req.bits.tag                := tag
+  io.req.bits.put                := 0.U
 }
