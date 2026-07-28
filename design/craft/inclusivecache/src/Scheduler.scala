@@ -69,6 +69,14 @@ class InclusiveCacheBankScheduler(params: InclusiveCacheParameters) extends Modu
   val bankedStore = Module(new BankedStore(params))
   val requests = Module(new ListBuffer(ListBufferParameters(new QueuedRequest(params), 3*params.mshrs, params.secondary, false)))
   val mshrs = Seq.fill(params.mshrs) { Module(new MSHR(params)) }
+
+  // A queued secondary request used to feed an MSHR in the same cycle that it
+  // was popped.  Keep it for one cycle to isolate the ListBuffer read muxes
+  // from the MSHR execution-plan muxes.
+  val reloadValid = RegInit(VecInit(Seq.fill(params.mshrs)(false.B)))
+  val reloadReq = Reg(Vec(params.mshrs, new QueuedRequest(params)))
+  val reloadSet = Reg(Vec(params.mshrs, UInt(params.setBits.W)))
+  val reloadTag = Reg(Vec(params.mshrs, UInt(params.tagBits.W)))
   val abc_mshrs = mshrs.init.init
   val bc_mshr = mshrs.init.last
   val c_mshr = mshrs.last
@@ -161,6 +169,7 @@ class InclusiveCacheBankScheduler(params: InclusiveCacheParameters) extends Modu
 
   // Pick highest priority request
   val request = Wire(Decoupled(new FullRequest(params)))
+  val reloadPending = reloadValid.asUInt.orR
   request.valid := directory.io.ready && (sinkA.io.req.valid || sinkX.io.req.valid || sinkC.io.req.valid)
   request.bits := Mux(sinkC.io.req.valid, sinkC.io.req.bits,
                   Mux(sinkX.io.req.valid, sinkX.io.req.bits, sinkA.io.req.bits))
@@ -210,7 +219,7 @@ class InclusiveCacheBankScheduler(params: InclusiveCacheParameters) extends Modu
   val bypassMatches = (mshr_selectOH & lowerMatches1).orR &&
                       Mux(c_pop || request.bits.prio(2), !c_pop, Mux(b_pop || request.bits.prio(1), !b_pop, !a_pop))
   val may_pop = a_pop || b_pop || c_pop
-  val bypass = request.valid && queue && bypassMatches
+  val bypass = request.fire && queue && bypassMatches
   val will_reload = schedule.reload && (may_pop || bypass)
   val will_pop = schedule.reload && may_pop && !bypass
 
@@ -218,7 +227,9 @@ class InclusiveCacheBankScheduler(params: InclusiveCacheParameters) extends Modu
   params.ccover(mshr_selectOH.orR && will_reload, "SCHEDULER_RELOAD", "Back-to-back service of two requests")
   params.ccover(mshr_selectOH.orR && will_pop, "SCHEDULER_POP", "Service of a secondary miss")
 
-  // Repeat the above logic, but without the fan-in
+  // Repeat the above logic, but without the fan-in.  Bypass and a buffered
+  // ListBuffer reload share the same allocate mux; the buffer only inserts a
+  // register between the ListBuffer read and this pre-existing allocation path.
   mshrs.zipWithIndex.foreach { case (m, i) =>
     val sel = mshr_selectOH(i)
     m.io.schedule.ready := sel
@@ -228,12 +239,20 @@ class InclusiveCacheBankScheduler(params: InclusiveCacheParameters) extends Modu
     val bypassMatches = lowerMatches1(i) &&
                         Mux(c_pop || request.bits.prio(2), !c_pop, Mux(b_pop || request.bits.prio(1), !b_pop, !a_pop))
     val may_pop = a_pop || b_pop || c_pop
-    val bypass = request.valid && queue && bypassMatches
-    val will_reload = m.io.schedule.bits.reload && (may_pop || bypass)
-    m.io.allocate.bits.viewAsSupertype(chiselTypeOf(requests.io.data)) := Mux(bypass, WireInit(new QueuedRequest(params), init = request.bits), requests.io.data)
-    m.io.allocate.bits.set := m.io.status.bits.set
-    m.io.allocate.bits.repeat := m.io.allocate.bits.tag === m.io.status.bits.tag
-    m.io.allocate.valid := sel && will_reload
+    val bypass = request.fire && queue && bypassMatches
+    val will_bypass = sel && m.io.schedule.bits.reload && bypass
+    val will_allocate = will_bypass || reloadValid(i)
+    val allocateRequest = Wire(new QueuedRequest(params))
+    allocateRequest := Mux(will_bypass,
+      WireInit(new QueuedRequest(params), init = request.bits), reloadReq(i))
+    val allocateSet = Mux(will_bypass, m.io.status.bits.set, reloadSet(i))
+    val allocateTag = Mux(will_bypass, m.io.status.bits.tag, reloadTag(i))
+
+    m.io.allocate.bits.viewAsSupertype(chiselTypeOf(allocateRequest)) := allocateRequest
+    m.io.allocate.bits.set := allocateSet
+    m.io.allocate.bits.repeat := allocateRequest.tag === allocateTag
+    m.io.allocate.valid := will_allocate
+    when (reloadValid(i)) { reloadValid(i) := false.B }
   }
 
   // Determine which of the queued requests to pop (supposing will_pop)
@@ -241,6 +260,20 @@ class InclusiveCacheBankScheduler(params: InclusiveCacheParameters) extends Modu
   val pop_index = OHToUInt(Cat(mshr_selectOH, mshr_selectOH, mshr_selectOH) & prio_requests)
   requests.io.pop.valid := will_pop
   requests.io.pop.bits  := pop_index
+
+  // Capture a popped secondary request before it enters an MSHR.  The
+  // Directory read below is intentionally still issued in the pop cycle so
+  // its response remains aligned with the following-cycle allocation.
+  val popOwnerOH = Mux(will_pop, mshr_selectOH, 0.U(params.mshrs.W))
+  mshrs.zipWithIndex.foreach { case (m, i) =>
+    when (popOwnerOH(i)) {
+      assert(!reloadValid(i))
+      reloadValid(i) := true.B
+      reloadReq(i) := requests.io.data
+      reloadSet(i) := m.io.status.bits.set
+      reloadTag(i) := m.io.status.bits.tag
+    }
+  }
 
   // Reload from the Directory if the next MSHR operation changes tags
   val lb_tag_mismatch = scheduleTag =/= requests.io.data.tag
@@ -250,16 +283,17 @@ class InclusiveCacheBankScheduler(params: InclusiveCacheParameters) extends Modu
 
   // Is there an MSHR free for this request?
   val mshr_validOH = Cat(mshrs.map(_.io.status.valid).reverse)
-  val mshr_free = (~mshr_validOH & prioFilter).orR
+  val mshr_occupiedOH = mshr_validOH | reloadValid.asUInt
+  val mshr_free = (~mshr_occupiedOH & prioFilter).orR
 
   // Fanout the request to the appropriate handler (if any)
   val bypassQueue = schedule.reload && bypassMatches
   val request_alloc_cases =
      (alloc && !mshr_uses_directory_assuming_no_bypass && mshr_free) ||
-     (nestB && !mshr_uses_directory_assuming_no_bypass && !bc_mshr.io.status.valid && !c_mshr.io.status.valid) ||
-     (nestC && !mshr_uses_directory_assuming_no_bypass && !c_mshr.io.status.valid)
-  request.ready := request_alloc_cases || (queue && (bypassQueue || requests.io.push.ready))
-  val alloc_uses_directory = request.valid && request_alloc_cases
+     (nestB && !mshr_uses_directory_assuming_no_bypass && !bc_mshr.io.status.valid && !c_mshr.io.status.valid && !reloadValid(params.mshrs-2) && !reloadValid(params.mshrs-1)) ||
+     (nestC && !mshr_uses_directory_assuming_no_bypass && !c_mshr.io.status.valid && !reloadValid(params.mshrs-1))
+  request.ready := !reloadPending && (request_alloc_cases || (queue && (bypassQueue || requests.io.push.ready)))
+  val alloc_uses_directory = request.fire && request_alloc_cases
 
   // When a request goes through, it will need to hit the Directory
   directory.io.read.valid := mshr_uses_directory || alloc_uses_directory
@@ -267,7 +301,7 @@ class InclusiveCacheBankScheduler(params: InclusiveCacheParameters) extends Modu
   directory.io.read.bits.tag := Mux(mshr_uses_directory_for_lb, requests.io.data.tag, request.bits.tag)
 
   // Enqueue the request if not bypassed directly into an MSHR
-  requests.io.push.valid := request.valid && queue && !bypassQueue
+  requests.io.push.valid := request.fire && queue && !bypassQueue
   requests.io.push.bits.data  := request.bits
   requests.io.push.bits.index := Mux1H(
     request.bits.prio, Seq(
@@ -275,16 +309,16 @@ class InclusiveCacheBankScheduler(params: InclusiveCacheParameters) extends Modu
       OHToUInt(lowerMatches1 << params.mshrs*1),
       OHToUInt(lowerMatches1 << params.mshrs*2)))
 
-  val mshr_insertOH = ~(leftOR(~mshr_validOH) << 1) & ~mshr_validOH & prioFilter
+  val mshr_insertOH = ~(leftOR(~mshr_occupiedOH) << 1) & ~mshr_occupiedOH & prioFilter
   (mshr_insertOH.asBools zip mshrs) map { case (s, m) =>
-    when (request.valid && alloc && s && !mshr_uses_directory_assuming_no_bypass) {
+    when (request.fire && alloc && s && !mshr_uses_directory_assuming_no_bypass) {
       m.io.allocate.valid := true.B
       m.io.allocate.bits.viewAsSupertype(chiselTypeOf(request.bits)) := request.bits
       m.io.allocate.bits.repeat := false.B
     }
   }
 
-  when (request.valid && nestB && !bc_mshr.io.status.valid && !c_mshr.io.status.valid && !mshr_uses_directory_assuming_no_bypass) {
+  when (request.fire && nestB && !bc_mshr.io.status.valid && !c_mshr.io.status.valid && !reloadValid(params.mshrs-2) && !reloadValid(params.mshrs-1) && !mshr_uses_directory_assuming_no_bypass) {
     bc_mshr.io.allocate.valid := true.B
     bc_mshr.io.allocate.bits.viewAsSupertype(chiselTypeOf(request.bits)) := request.bits
     bc_mshr.io.allocate.bits.repeat := false.B
@@ -292,7 +326,7 @@ class InclusiveCacheBankScheduler(params: InclusiveCacheParameters) extends Modu
   }
   bc_mshr.io.allocate.bits.prio(0) := false.B
 
-  when (request.valid && nestC && !c_mshr.io.status.valid && !mshr_uses_directory_assuming_no_bypass) {
+  when (request.fire && nestC && !c_mshr.io.status.valid && !reloadValid(params.mshrs-1) && !mshr_uses_directory_assuming_no_bypass) {
     c_mshr.io.allocate.valid := true.B
     c_mshr.io.allocate.bits.viewAsSupertype(chiselTypeOf(request.bits)) := request.bits
     c_mshr.io.allocate.bits.repeat := false.B
