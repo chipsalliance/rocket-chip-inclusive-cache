@@ -51,7 +51,7 @@ class ListBuffer[T <: Data](params: ListBufferParameters[T]) extends Module
   val next  = Mem(params.entries, UInt(params.entryBits.W))
   val data  = Mem(params.entries, params.gen)
 
-  val freeOH = ~(leftOR(~used) << 1) & ~used
+  val freeOH = (~(leftOR(~used) << 1) & ~used)(params.entries-1, 0)
   val freeIdx = OHToUInt(freeOH)
 
   val valid_set = WireDefault(0.U(params.queues.W))
@@ -65,7 +65,7 @@ class ListBuffer[T <: Data](params: ListBufferParameters[T]) extends Module
   io.push.ready := !used.andR
   when (io.push.fire) {
     valid_set := UIntToOH(io.push.bits.index, params.queues)
-    used_set := freeOH
+    used_set :<= freeOH
     data.write(freeIdx, io.push.bits.data)
     when (push_valid) {
       next.write(push_tail, freeIdx)

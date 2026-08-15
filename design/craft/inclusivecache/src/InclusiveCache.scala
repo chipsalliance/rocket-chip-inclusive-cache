@@ -171,7 +171,7 @@ class InclusiveCache(
         when (contained) { ctrl.module.io.flush_match := true.B }
 
         sched.io.req.valid := contained && ctrl.module.io.flush_req.valid
-        sched.io.req.bits.address := ctrl.module.io.flush_req.bits
+        sched.io.req.bits.address :<= ctrl.module.io.flush_req.bits.squeeze
         sched.io.req.bits.invalidate := ctrl.module.io.invalidate_req
         when (contained && sched.io.req.ready) { ctrl.module.io.flush_req.ready := true.B }
 

@@ -56,7 +56,7 @@ class SinkA(params: InclusiveCacheParameters) extends Module
   lists := (lists | lists_set) & ~lists_clr
 
   val free = !lists.andR
-  val freeOH = ~(leftOR(~lists) << 1) & ~lists
+  val freeOH = (~(leftOR(~lists) << 1) & ~lists)(params.putLists-1, 0)
   val freeIdx = OHToUInt(freeOH)
 
   val first = params.inner.first(a)
@@ -78,7 +78,7 @@ class SinkA(params: InclusiveCacheParameters) extends Module
   a.ready := !req_block && !buf_block && !set_block
   io.req.valid := a.valid && first && !buf_block && !set_block
   putbuffer.io.push.valid := a.valid && hasData && !req_block && !set_block
-  when (a.valid && first && hasData && !req_block && !buf_block) { lists_set := freeOH }
+  when (a.valid && first && hasData && !req_block && !buf_block) { lists_set :<= freeOH }
 
   val (tag, set, offset) = params.parseAddress(a.bits.address)
   val put = Mux(first, freeIdx, RegEnable(freeIdx, first))

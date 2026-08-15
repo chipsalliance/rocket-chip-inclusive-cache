@@ -75,7 +75,7 @@ class SinkD(params: InclusiveCacheParameters) extends Module
   io.bs_adr.bits.noop := !d.valid || !hasData
   io.bs_adr.bits.way  := io.way
   io.bs_adr.bits.set  := io.set
-  io.bs_adr.bits.beat := Mux(d.valid, beat, RegEnable(beat + io.bs_adr.ready.asUInt, d.valid))
+  io.bs_adr.bits.beat :<= Mux(d.valid, beat, RegEnable(beat + io.bs_adr.ready.asUInt, d.valid)).squeeze
   io.bs_adr.bits.mask := ~0.U(params.outerMaskBits.W)
   io.bs_dat.data      := d.bits.data
 

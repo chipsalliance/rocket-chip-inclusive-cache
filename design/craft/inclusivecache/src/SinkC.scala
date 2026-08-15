@@ -120,7 +120,7 @@ class SinkC(params: InclusiveCacheParameters) extends Module
     lists := (lists | lists_set) & ~lists_clr
 
     val free = !lists.andR
-    val freeOH = ~(leftOR(~lists) << 1) & ~lists
+    val freeOH = (~(leftOR(~lists) << 1) & ~lists)(params.relLists-1, 0)
     val freeIdx = OHToUInt(freeOH)
 
     val req_block = first && !io.req.ready
@@ -135,7 +135,7 @@ class SinkC(params: InclusiveCacheParameters) extends Module
 
     io.req.valid := !resp && c.valid && first && !buf_block && !set_block
     putbuffer.io.push.valid := !resp && c.valid && hasData && !req_block && !set_block
-    when (!resp && c.valid && first && hasData && !req_block && !buf_block) { lists_set := freeOH }
+    when (!resp && c.valid && first && hasData && !req_block && !buf_block) { lists_set :<= freeOH }
 
     val put = Mux(first, freeIdx, RegEnable(freeIdx, first))
 
@@ -151,12 +151,12 @@ class SinkC(params: InclusiveCacheParameters) extends Module
     io.req.bits.tag                := tag
     io.req.bits.put                := put
 
-    putbuffer.io.push.bits.index := put
+    putbuffer.io.push.bits.index :<= put
     putbuffer.io.push.bits.data.data    := c.bits.data
     putbuffer.io.push.bits.data.corrupt := c.bits.corrupt
 
     // Grant access to pop the data
-    putbuffer.io.pop.bits := io.rel_pop.bits.index
+    putbuffer.io.pop.bits :<= io.rel_pop.bits.index.squeeze
     putbuffer.io.pop.valid := io.rel_pop.fire
     io.rel_pop.ready := putbuffer.io.valid(io.rel_pop.bits.index(log2Ceil(params.relLists)-1,0))
     io.rel_beat := putbuffer.io.data

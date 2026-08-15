@@ -50,7 +50,7 @@ class SourceB(params: InclusiveCacheParameters) extends Module
 
     val busy = remain.orR
     val todo = Mux(busy, remain, io.req.bits.clients)
-    val next = ~(leftOR(todo) << 1) & todo
+    val next = (~(leftOR(todo) << 1) & todo)(params.clientBits-1, 0)
 
     if (params.clientBits > 1) {
       params.ccover(PopCount(remain) > 1.U, "SOURCEB_MULTI_PROBE", "Had to probe more than one client")
@@ -66,7 +66,7 @@ class SourceB(params: InclusiveCacheParameters) extends Module
     io.b <> params.micro.innerBuf.b(b)
 
     b.valid := busy || io.req.valid
-    when (b.fire) { remain_clr := next }
+    when (b.fire) { remain_clr :<= next }
     params.ccover(b.valid && !b.ready, "SOURCEB_STALL", "Backpressured when issuing a probe")
 
     val tag = Mux(!busy, io.req.bits.tag, RegEnable(io.req.bits.tag, io.req.fire))
@@ -74,7 +74,7 @@ class SourceB(params: InclusiveCacheParameters) extends Module
     val param = Mux(!busy, io.req.bits.param, RegEnable(io.req.bits.param, io.req.fire))
 
     b.bits.opcode  := TLMessages.Probe
-    b.bits.param   := param
+    b.bits.param   :<= param.squeeze
     b.bits.size    := params.offsetBits .U
     b.bits.source  := params.clientSource(next)
     b.bits.address := params.expandAddress(tag, set, 0.U)
