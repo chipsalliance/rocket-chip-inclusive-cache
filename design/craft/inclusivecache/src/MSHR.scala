@@ -186,7 +186,7 @@ class MSHR(params: InclusiveCacheParameters) extends Module
   io.schedule.bits.c.valid := (!s_release && w_rprobeackfirst && !request.control.invalidate) || (!s_probeack && w_pprobeackfirst)
   io.schedule.bits.d.valid := !s_execute && w_pprobeack && w_grant
   io.schedule.bits.e.valid := !s_grantack && w_grantfirst
-  io.schedule.bits.x.valid := (!s_flush && w_releaseack && !request.control.invalidate) || (!s_flush && w_rprobeackfirst && request.control.invalidate)
+  io.schedule.bits.x.valid := (!s_flush && w_releaseack && !request.control.invalidate) || (!s_flush && w_rprobeacklast && request.control.invalidate)
   io.schedule.bits.dir.valid := (!s_release && w_rprobeackfirst) || (!s_writeback && no_wait)
   io.schedule.bits.reload := no_wait
   io.schedule.valid := io.schedule.bits.a.valid || io.schedule.bits.b.valid || io.schedule.bits.c.valid ||
@@ -200,7 +200,7 @@ class MSHR(params: InclusiveCacheParameters) extends Module
                                                             s_pprobe     := true.B
     when (s_release && s_pprobe)                          { s_acquire    := true.B }
     when (w_releaseack && !request.control.invalidate)    { s_flush      := true.B }
-    when (w_rprobeackfirst && request.control.invalidate) { s_flush      := true.B } // Invalidate only requires probe ack back
+    when (w_rprobeacklast && request.control.invalidate)  { s_flush      := true.B } // Invalidate only requires probe ack back
     when (w_pprobeackfirst)                               { s_probeack   := true.B }
     when (w_grantfirst)                                   { s_grantack   := true.B }
     when (w_pprobeack && w_grant)                         { s_execute    := true.B }
