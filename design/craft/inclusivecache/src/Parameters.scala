@@ -130,7 +130,8 @@ case class InclusiveCacheMicroParameters(
 case class InclusiveCacheControlParameters(
   address:   BigInt,
   beatBytes: Int,
-  bankedControl: Boolean)
+  bankedControl: Boolean,
+  maxInFlight: Option[Int] = None) // Cap on flushes in flight per bank. None sets the cap to half the A-capable MSHRs.
 
 case class InclusiveCacheParameters(
   cache:  CacheParameters,

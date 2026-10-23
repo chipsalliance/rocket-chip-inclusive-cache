@@ -104,6 +104,10 @@ class InclusiveCache(
       c.copy(address = c.address + i * InclusiveCacheParameters.L2ControlSize))) }
   }.getOrElse(Nil)
 
+  // A banked control port only serves its own bank, and the port numbers that bank 0
+  def ctrlBanks: Int = if (ctrls.size > 1) 1 else node.edges.in.size
+  def ctrlPort(bank: Int): Int = if (ctrls.size > 1) 0 else bank
+
   lazy val module = new Impl
   class Impl extends LazyModuleImp(this) {
     // If you have a control port, you must have at least one cache port
@@ -159,23 +163,24 @@ class InclusiveCache(
 
     ctrls.foreach { ctrl =>
       ctrl.module.io.flush_req.ready := false.B
-      ctrl.module.io.flush_resp := false.B
-      ctrl.module.io.flush_match := false.B
+      ctrl.module.io.flush_resp.foreach(_ := false.B)
+      ctrl.module.io.flush_match.foreach(_ := false.B)
     }
 
     mods.zip(node.edges.in).zipWithIndex.foreach { case ((sched, edgeIn), i) =>
       val ctrl = if (ctrls.size > 1) Some(ctrls(i)) else ctrls.headOption
+      val port = ctrlPort(i)
       ctrl.foreach { ctrl => {
         val contained = edgeIn.manager.managers.flatMap(_.address)
           .map(_.contains(ctrl.module.io.flush_req.bits)).reduce(_||_)
-        when (contained) { ctrl.module.io.flush_match := true.B }
+        ctrl.module.io.flush_match(port) := contained
 
         sched.io.req.valid := contained && ctrl.module.io.flush_req.valid
         sched.io.req.bits.address := ctrl.module.io.flush_req.bits
         sched.io.req.bits.invalidate := ctrl.module.io.invalidate_req
         when (contained && sched.io.req.ready) { ctrl.module.io.flush_req.ready := true.B }
 
-        when (sched.io.resp.valid) { ctrl.module.io.flush_resp := true.B }
+        ctrl.module.io.flush_resp(port) := sched.io.resp.valid
         sched.io.resp.ready := true.B
       }}
     }
