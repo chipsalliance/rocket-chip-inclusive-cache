@@ -44,7 +44,8 @@ case class InclusiveCacheParams(
   bufInnerInterior: InclusiveCachePortParameters = InclusiveCachePortParameters.fullC,
   bufInnerExterior: InclusiveCachePortParameters = InclusiveCachePortParameters.flowAD,
   bufOuterInterior: InclusiveCachePortParameters = InclusiveCachePortParameters.full,
-  bufOuterExterior: InclusiveCachePortParameters = InclusiveCachePortParameters.none)
+  bufOuterExterior: InclusiveCachePortParameters = InclusiveCachePortParameters.none,
+  ctrlMaxInFlight: Option[Int] = None) // cap on flushes in flight per bank
 
 case object InclusiveCacheKey extends Field[InclusiveCacheParams]
 
@@ -87,13 +88,15 @@ class WithInclusiveCache(
       bufInnerInterior,
       bufInnerExterior,
       bufOuterInterior,
-      bufOuterExterior) = p(InclusiveCacheKey)
+      bufOuterExterior,
+      ctrlMaxInFlight) = p(InclusiveCacheKey)
 
     val l2Ctrl = ctrlAddr.map { addr =>
       InclusiveCacheControlParameters(
         address = addr,
         beatBytes = cbus.beatBytes,
-        bankedControl = bankedControl)
+        bankedControl = bankedControl,
+        maxInFlight = ctrlMaxInFlight)
     }
     val l2 = LazyModule(new InclusiveCache(
       CacheParameters(
